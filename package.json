@@ -1,0 +1,39 @@
+{
+  "name": "code-attribution-engine",
+  "version": "1.0.0",
+  "description": "AI code adoption rate attribution analysis engine",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && copyfiles -u 1 \"src/**/*.wasm\" dist/",
+    "start": "node dist/main.js",
+    "dev": "ts-node src/main.ts",
+    "test": "jest",
+    "test:coverage": "jest --coverage"
+  },
+  "keywords": [
+    "ai",
+    "code-attribution",
+    "git-diff",
+    "similarity"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@types/node": "^25.6.0",
+    "bullmq": "^5.73.5",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "ioredis": "^5.10.1",
+    "parse-diff": "^0.11.1",
+    "tree-sitter-wasms": "^0.1.13",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.2",
+    "web-tree-sitter": "^0.26.8"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/jest": "^30.0.0",
+    "copyfiles": "^2.4.1",
+    "jest": "^30.3.0",
+    "ts-jest": "^29.4.9"
+  }
+}

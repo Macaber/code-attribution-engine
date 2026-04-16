@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  # --- Code Attribution Engine ---
+  app:
+    build: .
+    container_name: code-attribution-engine
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  # --- Redis Queue Store ---
+  redis:
+    image: redis:7-alpine
+    container_name: code-attribution-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    # If your Redis needs a password, you can enable it here:
+    # command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:-123456}"]
+    restart: unless-stopped
+
+volumes:
+  redis_data:
