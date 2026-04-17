@@ -1,9 +1,11 @@
 # OpenCode Attribution Engine (AI 代码采纳率归因分析引擎)
 
 ## 📌 项目背景 (Project Context)
+
 本项目是一个旁路分析系统，用于统计开发者对 OpenCode（AI 辅助编程工具）生成代码的实际采纳率。系统通过接收 CICD 系统的 Webhook（`POST /api/coding/doMerge`），将用户提交的代码变更（Git Diff + 完整文件内容）与数据库中记录的该用户最近调用大模型生成的代码（AI Messages）进行异步的相似度比对，从而计算出真实的 AI 代码贡献占比。
 
 ## 🏗️ 系统架构与技术选型 (Architecture & Tech Stack)
+
 * **语言**: TypeScript (Node.js) - 严格模式 (`"strict": true`)
 * **框架**: Express（模块化路由）
 * **队列**: BullMQ + Redis（用于解耦 Webhook 接收与高 CPU 消耗的代码比对任务）
@@ -35,6 +37,7 @@
 ```
 
 **关键字段说明：**
+
 | 字段 | 描述 |
 |---|---|
 | `oa` | 操作员账号（用于查询用户 AI 历史记录） |
@@ -48,6 +51,8 @@
 ## 🧠 核心实现：漏斗式升维降级管线 (Escalation Pipeline)
 
 系统采用**三层漏斗拦截模式（Chain of Responsibility）**，每一层都有独立的**快速放行（Fast-Path）**和**快速熔断（Fast-Fail）**阈值，确保在"性能"与"精准度"之间动态平衡。
+
+> **核心度量统一为 Containment（包含度）**：三层算法的分母始终基于 Diff 侧（用户提交的代码），回答同一个业务问题 -- "用户提交的代码中有多少来源于 AI？"。这避免了用户部分采纳大段 AI 代码时被"分母拉低"的问题。
 
 ```
 ┌─────────────────────────────────────────────────┐
@@ -70,26 +75,31 @@
 
 ### 第一层：Winnowing 文档指纹 (L1 - 粗筛层)
 
-* **原理**: 通过滑动窗口提取长度为 $k$ 的 K-grams，计算每个 K-gram 的哈希值，在窗口 $w$ 内选取最小哈希值作为指纹，最终通过 Jaccard 相似度 ($\frac{|A \cap B|}{|A \cup B|}$) 计算两段代码的重合度。
-* **作用**: 极快地判断两段代码是否存在大面积匹配，能完美应对用户在代码中间插入或删除少量逻辑的情况。
+* **原理**: 通过滑动窗口提取长度为 $k$ 的 K-grams，计算每个 K-gram 的哈希值，在窗口 $w$ 内选取最小哈希值作为指纹。
+* **度量**: Containment（包含度）-- "Diff 的指纹有多少在 AI 代码中找到？" 分母为 Diff 侧指纹数量。
+* **短文本旁路**: 当规格化后文本长度 < K-gram 长度（默认 5）时，跳过 L1 直接进入 L2，避免 1-2 行短代码因无法生成指纹而被误判。
 * **阈值**: 快速放行 $\ge 0.90$，快速熔断 $\le 0.15$
 
 ### 第二层：LCS 最长公共子序列 (L2 - 序列层)
 
 * **原理**: 动态规划计算两段规格化文本的最长公共子序列。采用两行空间优化 ($O(\min(M,N))$ 空间) 并内置熔断器（$N \times M > 10^7$ 时按比例截断输入）。
-* **公式**: $\text{相似度} = \frac{\text{LCS}(Code_{AI}, Code_{Commit})}{\max(|Code_{AI}|, |Code_{Commit}|)}$
+* **公式**: $\text{相似度} = \frac{\text{LCS}(Code_{AI}, Code_{Diff})}{|Code_{Diff}|}$ -- 分母为 Diff 侧长度，用户只采纳 AI 部分代码时不会被分母拉低。
 * **阈值**: 快速放行 $\ge 0.80$，快速熔断 $\le 0.30$
 
 ### 第三层：AST 语义特征比对 (L3 - 结构特征层)
 
-* **原理**: 使用 Tree-sitter 解析**完整的文件内容**生成 AST，从中提取高维语义特征集合，然后通过 Jaccard 相似度进行比对。
-* **提取的特征类型**:
-  * 函数/方法调用名: `call:fetch`, `call:JSON.parse`
-  * 控制流类型: `control:if`, `control:for`, `control:try_catch`
-  * 声明类型: `decl:function`, `decl:fn:parse`, `decl:class:DateUtils`
+* **原理**: 使用 Tree-sitter 解析**完整文件**生成有效 AST，但**仅提取 Diff 行范围内的 AST 节点特征**，避免无关代码稀释比较结果。
+* **Diff 区域定位**: 通过 `chunk.startLine` / `chunk.endLine` 将文件 AST 节点按行号过滤，只有落在 Diff 范围内的节点才会生成特征。
+* **度量**: Containment -- "AI 的结构特征有多少出现在 Diff 区域中？" 分母为 AI 侧特征数量。
+* **提取的特征类型（增强版）**:
+  * 函数调用 + 参数数量: `call:fetch`, `call:fetch/2`, `call:new:Map`
+  * 控制流（细粒度）: `control:if` vs `control:if_else`, `control:for_in`, `control:for_each`, `control:do_while`, `control:ternary`, `control:await`, `control:yield`, `control:try_catch_finally`
+  * 声明（细粒度）: `decl:function`, `decl:arrow`, `decl:method`, `decl:constructor`, `decl:getter`, `decl:setter`, `decl:interface`, `decl:enum`, `decl:fn_params/3`
   * 导入路径: `import:express`, `import:axios`
-  * 运算操作符: `op:===`, `op:assign`
-* **优势**: 即使用户将 AI 写的函数调换了位置、把变量全部重命名、或者把逻辑拆分成子函数，只要核心调用的 API 和控制流一致，Jaccard 相似度依然会很高。
+  * 运算符（增强）: `op:===`, `op:unary:!`, `op:aug_assign:+=`, `op:instanceof`, `op:typeof`
+  * 字面量类型: `literal:string`, `literal:number`, `literal:boolean`, `literal:array`, `literal:object`
+  * 类型注解 (TypeScript): `type:annotation`, `type:cast`, `type:assertion`
+* **优势**: 即使用户将 AI 写的函数调换了位置、把变量全部重命名、或者把逻辑拆分成子函数，只要核心调用的 API 和控制流一致，包含度依然会很高。
 * **阈值**: 通过 $\ge 0.60$
 
 ### L3 层熔断保护机制
@@ -106,6 +116,7 @@
 ### 预处理：规格化 (Normalization)
 
 在进入比对算法前，消除代码格式差异带来的噪音：
+
 1. 移除所有单行 (`//`) 和多行 (`/* */`) 注释
 2. 移除所有空白字符（空格、制表符、换行符）
 3. 将所有字符统一转换为小写
@@ -139,11 +150,17 @@ npm run dev
 ```
 
 ### 环境变量
+
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `REDIS_HOST` | `127.0.0.1` | Redis 地址 |
 | `REDIS_PORT` | `6379` | Redis 端口 |
 | `REDIS_PASSWORD` | (空) | Redis 密码 |
+| `MYSQL_HOST` | `127.0.0.1` | MySQL 地址 |
+| `MYSQL_PORT` | `3306` | MySQL 端口 |
+| `MYSQL_USER` | `root` | MySQL 用户名 |
+| `MYSQL_PASSWORD` | (空) | MySQL 密码 |
+| `MYSQL_DATABASE` | `code_attribution` | 数据库名 |
 | `PORT` | `3000` | HTTP 服务端口 |
 | `WORKER_CONCURRENCY` | `2` | 并发处理任务数 |
 
@@ -157,7 +174,12 @@ src/
 │   ├── queue/                       # BullMQ 队列配置与生产者/消费者
 │   │   ├── queue.config.ts          # Redis 连接 & 队列选项
 │   │   ├── queue.producer.ts        # 任务入队
-│   │   └── queue.consumer.ts        # 任务出队 & 调度 Worker
+│   │   └── queue.consumer.ts        # 任务出队 & 调度 Worker + MySQL 持久化
+│   ├── database/                    # MySQL 持久化层
+│   │   ├── database.config.ts       # 连接池配置 (mysql2/promise)
+│   │   ├── report.service.ts        # 报告写入 + 失败任务记录 + 重试管理
+│   │   └── migrations/
+│   │       └── 001_attribution_tables.sql  # 建表 DDL (3张表)
 │   └── cache/
 │       └── lru-cache.ts             # LRU 缓存 (AST 解析复用, 50 条/5 分钟 TTL)
 ├── domains/
@@ -169,7 +191,7 @@ src/
 │       ├── similarity-engine.ts     # 三层漏斗管线 (L1→L2→L3)
 │       ├── attribution.worker.ts    # 管线编排器 (async, 文件上下文传递)
 │       └── algorithms/
-│           ├── winnowing.ts         # L1: 文档指纹 (Jaccard)
+│           ├── winnowing.ts         # L1: 文档指纹
 │           ├── lcs.ts               # L2: 最长公共子序列 (DP + 熔断器)
 │           ├── ast-engine.ts        # L3: Tree-sitter AST 特征提取 + Jaccard
 │           ├── language-map.ts      # 文件扩展名 → Grammar 映射
@@ -199,7 +221,7 @@ npm run test:coverage
 | 测试套件 | 数量 | 覆盖内容 |
 |---|---|---|
 | `normalizer.test.ts` | 11 | 注释移除、空白清洗、大小写统一 |
-| `winnowing.test.ts` | 10 | Jaccard 相似度、K-gram 生成、指纹一致性 |
+| `winnowing.test.ts` | 10 | K-gram 生成、指纹一致性 |
 | `lcs.test.ts` | 11 | DP 精度、空间优化、大输入熔断器 |
 | `diff-parser.test.ts` | 8 | Diff 解析、多文件、边界情况 |
 | `similarity-engine.test.ts` | 20 | L1 快速放行/熔断、L2 升级、L3 熔断保护、匹配类型映射 |

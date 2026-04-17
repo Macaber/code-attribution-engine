@@ -17,11 +17,9 @@ export class Normalizer {
 
     let result = rawCode;
 
-    // Step 1: Remove multi-line comments (non-greedy)
-    result = result.replace(/\/\*[\s\S]*?\*\//g, '');
-
-    // Step 2: Remove single-line comments
-    result = result.replace(/\/\/.*$/gm, '');
+    // Note: We deliberately KEEP comments.
+    // If the AI generated comments and the user adopted them, 
+    // it should be counted as AI contribution.
 
     // Step 3: Remove all whitespace characters
     result = result.replace(/\s+/g, '');

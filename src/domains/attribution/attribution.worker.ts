@@ -140,6 +140,8 @@ export class AttributionWorker {
           fileContent: chunk.fileContent,
           filePath: chunk.filePath,
           addedLineCount: chunk.fileAddedLineCount,
+          chunkStartLine: chunk.startLine,
+          chunkEndLine: chunk.endLine,
         },
       );
 
@@ -192,17 +194,54 @@ export class AttributionWorker {
 
   /**
    * Generate a summary report from match results.
+   *
+   * @param results - Pipeline match results
+   * @param jobData - Original job data (for computing totalCodeLines and skippedLines)
    */
-  static summarize(results: MatchResult[]): {
-    totalLines: number;
+  static summarize(
+    results: MatchResult[],
+    jobData?: AttributionJobData,
+  ): {
+    /** Total lines of code across ALL files (from merged file content) */
+    totalCodeLines: number;
+    /** Lines from diff chunks that were actually analyzed by the pipeline */
+    analyzedLines: number;
+    /** AI contributed lines (weighted by match score) */
     aiContributedLines: number;
+    /** AI contribution ratio = aiContributedLines / analyzedLines */
     aiContributionRatio: number;
+    /** Lines in files that had no diff (skipped, not analyzed) */
+    skippedLines: number;
+    /** Number of files that had no diff and were skipped */
+    skippedFileCount: number;
+    /** Chunk match counts by attribution type */
     strictMatches: number;
     fuzzyMatches: number;
     deepRefactorMatches: number;
     noMatches: number;
+    /** Per-message contribution breakdown (traceability) */
+    messageBreakdown: Array<{
+      messageId: string;
+      contributedLines: number;
+      chunkCount: number;
+      matchTypes: string[];
+    }>;
+    /** Per-chunk attribution detail (full traceability) */
+    chunkDetails: Array<{
+      filePath: string;
+      startLine: number;
+      endLine: number;
+      totalLines: number;
+      attribution: string;
+      contributedLines: number;
+      matchedMessageId: string | null;
+      score: number;
+      matchType: string;
+      level: string;
+    }>;
   } {
-    const totalLines = results.reduce(
+    // ── Analyzed lines (from diff chunks) ──
+    const analyzedLines = results.reduce(
       (sum, r) => sum + (r.chunk.endLine - r.chunk.startLine + 1),
       0,
     );
@@ -211,17 +250,76 @@ export class AttributionWorker {
       0,
     );
 
+    // ── Total code lines & skipped lines (from fileDetails) ──
+    let totalCodeLines = 0;
+    let skippedLines = 0;
+    let skippedFileCount = 0;
+
+    if (jobData?.fileDetails) {
+      for (const file of jobData.fileDetails) {
+        const fileLineCount = file.code
+          ? file.code.split('\n').length
+          : 0;
+        totalCodeLines += fileLineCount;
+
+        if (!file.diff || file.diff.trim().length === 0) {
+          skippedLines += fileLineCount;
+          skippedFileCount++;
+        }
+      }
+    }
+
+    // ── Message breakdown: aggregate contributions per AI messageId ──
+    const msgMap = new Map<string, { contributedLines: number; chunkCount: number; matchTypes: Set<string> }>();
+
+    for (const r of results) {
+      if (r.bestMatch && r.attribution !== 'none') {
+        const id = r.bestMatch.messageId;
+        const entry = msgMap.get(id) ?? { contributedLines: 0, chunkCount: 0, matchTypes: new Set() };
+        entry.contributedLines += r.contributedLines;
+        entry.chunkCount++;
+        entry.matchTypes.add(r.attribution);
+        msgMap.set(id, entry);
+      }
+    }
+
+    const messageBreakdown = Array.from(msgMap.entries()).map(([messageId, v]) => ({
+      messageId,
+      contributedLines: Math.round(v.contributedLines * 100) / 100,
+      chunkCount: v.chunkCount,
+      matchTypes: Array.from(v.matchTypes),
+    }));
+
+    // ── Chunk details: per-chunk full traceability ──
+    const chunkDetails = results.map(r => ({
+      filePath: r.chunk.filePath,
+      startLine: r.chunk.startLine,
+      endLine: r.chunk.endLine,
+      totalLines: r.chunk.endLine - r.chunk.startLine + 1,
+      attribution: r.attribution,
+      contributedLines: r.contributedLines,
+      matchedMessageId: r.bestMatch?.messageId ?? null,
+      score: r.bestMatch?.score ?? 0,
+      matchType: r.bestMatch?.matchType ?? 'NONE',
+      level: r.bestMatch?.level ?? 'FAILED_ALL',
+    }));
+
     return {
-      totalLines,
+      totalCodeLines,
+      analyzedLines,
       aiContributedLines: Math.round(aiContributedLines * 100) / 100,
       aiContributionRatio:
-        totalLines > 0
-          ? Math.round((aiContributedLines / totalLines) * 10000) / 10000
+        analyzedLines > 0
+          ? Math.round((aiContributedLines / analyzedLines) * 10000) / 10000
           : 0,
+      skippedLines,
+      skippedFileCount,
       strictMatches: results.filter(r => r.attribution === 'strict').length,
       fuzzyMatches: results.filter(r => r.attribution === 'fuzzy').length,
       deepRefactorMatches: results.filter(r => r.attribution === 'deep_refactor').length,
       noMatches: results.filter(r => r.attribution === 'none').length,
+      messageBreakdown,
+      chunkDetails,
     };
   }
 }

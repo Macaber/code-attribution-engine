@@ -4,21 +4,20 @@ describe('Normalizer', () => {
   const normalizer = new Normalizer();
 
   describe('normalizeText', () => {
-    it('should remove single-line comments', () => {
+    it('should keep single-line comments', () => {
       const input = `const x = 1; // this is a comment
 const y = 2; // another comment`;
       const result = normalizer.normalizeText(input);
-      expect(result).not.toContain('//');
-      expect(result).not.toContain('comment');
+      expect(result).toContain('//thisisacomment');
       expect(result).toContain('constx=1;');
     });
 
-    it('should remove multi-line comments', () => {
+    it('should keep multi-line comments', () => {
       const input = `/* this is
 a multi-line
 comment */ const x = 1;`;
       const result = normalizer.normalizeText(input);
-      expect(result).not.toContain('multi-line');
+      expect(result).toContain('/*thisisamulti-linecomment*/');
       expect(result).toContain('constx=1;');
     });
 
@@ -43,7 +42,7 @@ comment */ const x = 1;`;
       const input = `// just a comment
 /* another comment */`;
       const result = normalizer.normalizeText(input);
-      expect(result).toBe('');
+      expect(result).toBe('//justacomment/*anothercomment*/');
     });
 
     it('should handle string that is only whitespace', () => {
@@ -60,7 +59,7 @@ comment */ const x = 1;`;
       expect(result).toBeDefined();
     });
 
-    it('should handle mixed comments and code', () => {
+    it('should handle mixed comments and code by squashing whitespace', () => {
       const input = `
 // Header comment
 function add(a, b) {
@@ -68,7 +67,7 @@ function add(a, b) {
 }
 /* trailing */`;
       const result = normalizer.normalizeText(input);
-      expect(result).toBe('functionadd(a,b){returna+b;}');
+      expect(result).toBe('//headercommentfunctionadd(a,b){/*intermediate*/returna+b;//inline}/*trailing*/');
     });
 
     it('should handle \\r\\n line endings', () => {

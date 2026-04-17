@@ -30,7 +30,7 @@ describe('SimilarityEngine', () => {
       expect(result.combinedScore).toBeGreaterThanOrEqual(0.99);
     });
 
-    it('should return ~1.0 for code differing only in comments', () => {
+    it('should NOT return ~1.0 for code differing in comments (comments are now preserved)', () => {
       const aiCode = `// Calculate sum
 function add(a: number, b: number): number {
   return a + b; // return result
@@ -41,7 +41,10 @@ function add(a: number, b: number): number {
   return a + b;
 }`;
       const result = engine.evaluate(aiCode, commitCode);
-      expect(result.combinedScore).toBeGreaterThanOrEqual(0.99);
+      // It is a partial match since comments are different, but the code is the same.
+      // Score will be around 0.40 - 0.70.
+      expect(result.combinedScore).toBeLessThan(0.99);
+      expect(result.combinedScore).toBeGreaterThan(0.30);
     });
 
     it('should return >= 0.40 for fuzzy match (AI code with moderate edits)', () => {
@@ -135,6 +138,22 @@ function validatePassword(pw: string): boolean {
       expect(result.matchType).toBe('NONE');
       expect(result.level).toBe('FAILED_ALL');
       expect(result.score).toBe(0);
+    });
+
+    it('should bypass L1 and match via L2 for short identical code (1-2 lines)', async () => {
+      // "x++" normalizes to "x++" (3 chars, below k=5 threshold)
+      // Without bypass: Winnowing returns 0 → L1 fast-fail → NONE (wrong!)
+      // With bypass: skips L1 → L2 LCS returns 1.0 → FUZZY (correct!)
+      const result = await engine.evaluateChunk('x++', 'x++');
+      expect(result.score).toBeGreaterThanOrEqual(0.80);
+      expect(result.matchType).not.toBe('NONE');
+      // L1 should be skipped (score stays 0), L2 should have a score
+      expect(result.details.l2LcsScore).toBeDefined();
+    });
+
+    it('should bypass L1 and still return NONE for short different code', async () => {
+      const result = await engine.evaluateChunk('x++', 'abc');
+      expect(result.matchType).toBe('NONE');
     });
 
     it('should escalate to L2 for moderately similar code', async () => {

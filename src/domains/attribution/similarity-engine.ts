@@ -27,6 +27,8 @@ export class SimilarityEngine {
   private readonly lcs: LCS;
   private readonly astEngine: AstFeatureEngine;
   private readonly config: PipelineConfig;
+  /** Minimum normalized text length for Winnowing to produce valid fingerprints */
+  private readonly winnowingMinLength: number;
 
   // Legacy weights for backward-compatible evaluate()
   private readonly weights: SimilarityWeights;
@@ -44,7 +46,9 @@ export class SimilarityEngine {
     astEngineOptions?: { grammarsDir?: string; cacheSize?: number; cacheTtlMs?: number };
   }) {
     this.normalizer = new Normalizer();
+    const kgramLength = options?.winnowingConfig?.kgramLength ?? 5;
     this.winnowing = new Winnowing(options?.winnowingConfig);
+    this.winnowingMinLength = kgramLength; // text shorter than k can't generate any k-grams
     this.lcs = new LCS(options?.lcsConfig);
     this.astEngine = new AstFeatureEngine(options?.astEngineOptions);
     this.weights = {
@@ -76,9 +80,11 @@ export class SimilarityEngine {
     aiCode: string,
     diffChunkContent: string,
     options?: {
-      fileContent?: string;    // Full merged file for L3 AST context
-      filePath?: string;       // File path for language detection
-      addedLineCount?: number; // Number of added lines (for L3 circuit breaker)
+      fileContent?: string;      // Full merged file for L3 AST context
+      filePath?: string;         // File path for language detection
+      addedLineCount?: number;   // Number of added lines (for L3 circuit breaker)
+      chunkStartLine?: number;   // Diff chunk start line in file (1-indexed)
+      chunkEndLine?: number;     // Diff chunk end line in file (1-indexed)
     },
   ): Promise<EvaluationResult> {
     const normalizedAi = this.normalizer.normalizeText(aiCode);
@@ -89,31 +95,60 @@ export class SimilarityEngine {
     }
 
     // ═════════════════════════════════════════════════════
-    // L1: Winnowing — Document fingerprint (极快)
+    // Short-text bypass: 当任一文本短于 k-gram 最小长度时，
+    // Winnowing 无法产生有效指纹，直接跳到 L2 LCS
+    // 典型场景：AI 只生成了 1-2 行代码 (如 "return true;")
     // ═════════════════════════════════════════════════════
-    const l1Score = this.winnowing.calculateScore(normalizedAi, normalizedChunk);
+    const isShortText =
+      normalizedChunk.length < this.winnowingMinLength ||
+      normalizedAi.length < this.winnowingMinLength;
 
-    if (l1Score >= this.config.l1.fastPass) {
-      return {
-        score: l1Score,
-        matchType: 'STRICT',
-        level: 'L1',
-        details: { l1WinnowingScore: l1Score },
-      };
-    }
-    if (l1Score <= this.config.l1.fastFail) {
-      return {
-        score: 0,
-        matchType: 'NONE',
-        level: 'L1',
-        details: { l1WinnowingScore: l1Score },
-      };
+    // ═════════════════════════════════════════════════════
+    // L1: Winnowing — Document fingerprint (极快)
+    // 使用 Containment 而非 Jaccard: |fpDiff ∩ fpAI| / |fpDiff|
+    // "Diff 的指纹有多少能在 AI 代码中找到?"
+    // ═════════════════════════════════════════════════════
+    let l1Score = 0;
+
+    if (!isShortText) {
+      const fpAi = this.winnowing.getFingerprints(normalizedAi);
+      const fpDiff = this.winnowing.getFingerprints(normalizedChunk);
+
+      if (fpDiff.size > 0) {
+        let contained = 0;
+        for (const fp of fpDiff) {
+          if (fpAi.has(fp)) contained++;
+        }
+        l1Score = contained / fpDiff.size;
+      }
+
+      if (l1Score >= this.config.l1.fastPass) {
+        return {
+          score: l1Score,
+          matchType: 'STRICT',
+          level: 'L1',
+          details: { l1WinnowingScore: l1Score },
+        };
+      }
+      if (l1Score <= this.config.l1.fastFail) {
+        return {
+          score: 0,
+          matchType: 'NONE',
+          level: 'L1',
+          details: { l1WinnowingScore: l1Score },
+        };
+      }
     }
 
     // ═════════════════════════════════════════════════════
     // L2: LCS — Token sequence matching (低耗)
+    // 分母使用 Diff 侧长度: "用户提交的代码中有多少来自 AI?"
+    // 而非 max(|AI|,|Diff|) 避免用户部分采纳时被大 AI 代码拉低
     // ═════════════════════════════════════════════════════
-    const l2Score = this.lcs.calculateScore(normalizedAi, normalizedChunk);
+    const lcsLength = this.lcs.calculateLcsLength(normalizedAi, normalizedChunk);
+    const l2Score = normalizedChunk.length > 0
+      ? lcsLength / normalizedChunk.length
+      : 0;
 
     if (l2Score >= this.config.l2.fastPass) {
       return {
@@ -157,10 +192,19 @@ export class SimilarityEngine {
 
     // Run L3 AST comparison
     try {
+      // Scope L3 to diff region if line range is available
+      const diffLineRange = (options?.chunkStartLine && options?.chunkEndLine)
+        ? {
+            startLine: options.chunkStartLine - 1, // Tree-sitter uses 0-indexed rows
+            endLine: options.chunkEndLine - 1,
+          }
+        : undefined;
+
       const l3Score = await this.astEngine.compareFeatures(
         aiCode,
         fileContent,
         filePath,
+        diffLineRange,
       );
 
       if (l3Score === null) {
