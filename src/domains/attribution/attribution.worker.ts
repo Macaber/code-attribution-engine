@@ -164,11 +164,19 @@ export class AttributionWorker {
 
     switch (attribution) {
       case 'strict':
-        contributedLines = totalLines * 1.0;
+        contributedLines = bestResult?.exactContributedLines ?? totalLines;
         break;
       case 'fuzzy':
+        // Fuzzy (L2 partial match) relies purely on exact traced lines now
+        contributedLines = bestResult?.exactContributedLines ?? 0;
+        break;
       case 'deep_refactor':
-        contributedLines = totalLines * (bestResult?.score ?? 0);
+        // Deep refactor means text didn't match (L2 = 0) but AST logic (L3) matched heavily.
+        // Since we can't trace exact characters to lines, we use the structural similarity scale.
+        contributedLines = Math.max(
+          bestResult?.exactContributedLines ?? 0,
+          totalLines * (bestResult?.score ?? 0)
+        );
         break;
       case 'none':
       default:

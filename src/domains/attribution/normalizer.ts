@@ -1,3 +1,9 @@
+export interface LineMapping {
+  normalizedText: string;
+  charToLineMap: number[]; // index = char index, value = 0-indexed line number
+  lineCharCounts: Map<number, number>; // key = 0-indexed line number, value = number of valid characters
+}
+
 /**
  * Normalizer — Regex-based code cleaning for similarity comparison.
  *
@@ -28,5 +34,35 @@ export class Normalizer {
     result = result.toLowerCase();
 
     return result;
+  }
+
+  /**
+   * Normalizes code and builds a mapping from each character in the
+   * normalized string back to its original line number (0-indexed).
+   */
+  normalizeWithMapping(rawCode: string): LineMapping {
+    if (!rawCode) {
+      return { normalizedText: '', charToLineMap: [], lineCharCounts: new Map() };
+    }
+
+    let normalizedText = '';
+    const charToLineMap: number[] = [];
+    const lineCharCounts = new Map<number, number>();
+
+    const lines = rawCode.split('\n');
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+      // Step 3 & 4 equivalent for a single line
+      const stripped = lines[lineIndex].replace(/\s+/g, '').toLowerCase();
+      
+      if (stripped.length > 0) {
+        normalizedText += stripped;
+        for (let i = 0; i < stripped.length; i++) {
+          charToLineMap.push(lineIndex);
+        }
+        lineCharCounts.set(lineIndex, stripped.length);
+      }
+    }
+
+    return { normalizedText, charToLineMap, lineCharCounts };
   }
 }

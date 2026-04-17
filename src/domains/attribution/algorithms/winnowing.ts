@@ -79,30 +79,31 @@ export class Winnowing {
   }
 
   /**
-   * Calculate Winnowing similarity score between two texts.
-   * Uses Jaccard similarity: |A ∩ B| / |A ∪ B|
+   * Calculate Winnowing Containment score between a reference text and a target text.
+   * Uses Containment similarity: |Reference ∩ Target| / |Target|
+   * Calculates what portion of the target string comes from the reference string.
    *
-   * @returns Score between 0.0 and 1.0
+   * @param reference The base string (e.g., AI output history)
+   * @param target The tested string (e.g., User's submitted diff)
+   * @returns Containment score between 0.0 and 1.0
    */
-  calculateScore(textA: string, textB: string): number {
-    if (!textA || !textB) return 0;
+  calculateScore(reference: string, target: string): number {
+    if (!reference || !target) return 0;
 
-    const fpA = this.getFingerprints(textA);
-    const fpB = this.getFingerprints(textB);
+    const fpRef = this.getFingerprints(reference);
+    const fpTarget = this.getFingerprints(target);
 
-    if (fpA.size === 0 || fpB.size === 0) return 0;
+    if (fpTarget.size === 0) return 0;
+    if (fpRef.size === 0) return 0;
 
-    // Calculate Jaccard similarity
-    let intersectionSize = 0;
-    for (const fp of fpA) {
-      if (fpB.has(fp)) {
-        intersectionSize++;
+    // Calculate Containment similarity
+    let contained = 0;
+    for (const fp of fpTarget) {
+      if (fpRef.has(fp)) {
+        contained++;
       }
     }
 
-    const unionSize = fpA.size + fpB.size - intersectionSize;
-    if (unionSize === 0) return 0;
-
-    return intersectionSize / unionSize;
+    return contained / fpTarget.size;
   }
 }

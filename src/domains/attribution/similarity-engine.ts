@@ -88,10 +88,31 @@ export class SimilarityEngine {
     },
   ): Promise<EvaluationResult> {
     const normalizedAi = this.normalizer.normalizeText(aiCode);
-    const normalizedChunk = this.normalizer.normalizeText(diffChunkContent);
+    const chunkMapping = this.normalizer.normalizeWithMapping(diffChunkContent);
+    const normalizedChunk = chunkMapping.normalizedText;
 
     if (!normalizedAi || !normalizedChunk) {
-      return { score: 0, matchType: 'NONE', level: 'FAILED_ALL', details: {} };
+      return { score: 0, matchType: 'NONE', level: 'FAILED_ALL', details: {}, exactContributedLines: 0 };
+    }
+
+    // ── Pre-calculate Exact Traceable Line Contributions via LCS ──
+    // This allows us to track exactly which lines match, ignoring total length scores.
+    const matchedIndices = this.lcs.calculateTraceableLcs(normalizedAi, normalizedChunk);
+    
+    // Group matched chars by line
+    const matchedCharsPerLine = new Map<number, number>();
+    for (const charIndex of matchedIndices) {
+      const lineIndex = chunkMapping.charToLineMap[charIndex];
+      matchedCharsPerLine.set(lineIndex, (matchedCharsPerLine.get(lineIndex) ?? 0) + 1);
+    }
+    
+    let exactContributedLines = 0;
+    // We consider a line "contributed by AI" if >= 40% of its meaningful characters match
+    for (const [lineIndex, validTotalChars] of chunkMapping.lineCharCounts.entries()) {
+      const matched = matchedCharsPerLine.get(lineIndex) ?? 0;
+      if (validTotalChars > 0 && (matched / validTotalChars) >= 0.40) {
+        exactContributedLines++;
+      }
     }
 
     // ═════════════════════════════════════════════════════
@@ -128,6 +149,7 @@ export class SimilarityEngine {
           matchType: 'STRICT',
           level: 'L1',
           details: { l1WinnowingScore: l1Score },
+          exactContributedLines,
         };
       }
       if (l1Score <= this.config.l1.fastFail) {
@@ -136,6 +158,7 @@ export class SimilarityEngine {
           matchType: 'NONE',
           level: 'L1',
           details: { l1WinnowingScore: l1Score },
+          exactContributedLines,
         };
       }
     }
@@ -145,7 +168,8 @@ export class SimilarityEngine {
     // 分母使用 Diff 侧长度: "用户提交的代码中有多少来自 AI?"
     // 而非 max(|AI|,|Diff|) 避免用户部分采纳时被大 AI 代码拉低
     // ═════════════════════════════════════════════════════
-    const lcsLength = this.lcs.calculateLcsLength(normalizedAi, normalizedChunk);
+    // ═════════════════════════════════════════════════════
+    const lcsLength = matchedIndices.length; // From pre-calculated precise LCS
     const l2Score = normalizedChunk.length > 0
       ? lcsLength / normalizedChunk.length
       : 0;
@@ -156,16 +180,13 @@ export class SimilarityEngine {
         matchType: 'FUZZY',
         level: 'L2',
         details: { l1WinnowingScore: l1Score, l2LcsScore: l2Score },
+        exactContributedLines,
       };
     }
-    if (l2Score <= this.config.l2.fastFail) {
-      return {
-        score: 0,
-        matchType: 'NONE',
-        level: 'L2',
-        details: { l1WinnowingScore: l1Score, l2LcsScore: l2Score },
-      };
-    }
+    
+    // We intentionally removed L2 fastFail here. Even if L2 score is < 0.30, 
+    // it might still contain `exactContributedLines > 0`. We let it escalate to L3, 
+    // and if L3 fails, our buildFallbackResult will secure the matched lines.
 
     // ═════════════════════════════════════════════════════
     // L3: AST Feature Matching — 结构特征比对 (中高耗，仅模棱两可时触发)
@@ -175,19 +196,19 @@ export class SimilarityEngine {
     const addedLines = options?.addedLineCount ?? 0;
     if (addedLines > this.config.maxLinesForL3) {
       // Fall through to final scoring with L1+L2 only
-      return this.buildFallbackResult(l1Score, l2Score);
+      return this.buildFallbackResult(l1Score, l2Score, exactContributedLines);
     }
 
     // Language check: skip L3 for non-parseable files
     const filePath = options?.filePath;
     if (!filePath || !isL3Eligible(filePath)) {
-      return this.buildFallbackResult(l1Score, l2Score);
+      return this.buildFallbackResult(l1Score, l2Score, exactContributedLines);
     }
 
     // Need full file content for proper AST parsing
     const fileContent = options?.fileContent;
     if (!fileContent) {
-      return this.buildFallbackResult(l1Score, l2Score);
+      return this.buildFallbackResult(l1Score, l2Score, exactContributedLines);
     }
 
     // Run L3 AST comparison
@@ -209,7 +230,7 @@ export class SimilarityEngine {
 
       if (l3Score === null) {
         // Grammar not available — graceful language fallback
-        return this.buildFallbackResult(l1Score, l2Score);
+        return this.buildFallbackResult(l1Score, l2Score, exactContributedLines);
       }
 
       if (l3Score >= this.config.l3.pass) {
@@ -222,43 +243,48 @@ export class SimilarityEngine {
             l2LcsScore: l2Score,
             l3AstScore: l3Score,
           },
+          exactContributedLines,
         };
       }
     } catch (error) {
       // L3 failed — graceful degradation to L1+L2
       console.warn('[SimilarityEngine] L3 AST analysis failed, falling back to L1+L2:', error);
-      return this.buildFallbackResult(l1Score, l2Score);
+      return this.buildFallbackResult(l1Score, l2Score, exactContributedLines);
     }
 
-    // All layers passed without match
-    return {
-      score: 0,
-      matchType: 'NONE',
-      level: 'FAILED_ALL',
-      details: { l1WinnowingScore: l1Score, l2LcsScore: l2Score },
-    };
+    // All layers evaluated. Did we find any structural match?
+    // If we've reached here, L3 didn't pass or skipped, so we fallback to L1+L2 evaluation.
+    return this.buildFallbackResult(l1Score, l2Score, exactContributedLines);
   }
 
   /**
-   * Build a fallback result using weighted L1+L2 scores when L3 is skipped.
+   * Build a fallback result using L1+L2 scores and exact line tracking when L3 is skipped or fails.
    */
   private buildFallbackResult(
     l1Score: number,
     l2Score: number,
+    exactContributedLines: number,
   ): EvaluationResult {
     const combinedScore =
       this.weights.winnowing * l1Score + this.weights.lcs * l2Score;
 
     // Use legacy thresholds for L1+L2-only classification
     let matchType: EvaluationResult['matchType'] = 'NONE';
-    if (combinedScore >= THRESHOLDS.STRICT) matchType = 'STRICT';
-    else if (combinedScore >= THRESHOLDS.FUZZY) matchType = 'FUZZY';
+    
+    // ── NEW LOGIC: Any precise copied lines act as a Ground Truth Floor ──
+    if (exactContributedLines > 0) {
+      matchType = 'FUZZY';
+    } else {
+      if (combinedScore >= THRESHOLDS.STRICT) matchType = 'STRICT';
+      else if (combinedScore >= THRESHOLDS.FUZZY) matchType = 'FUZZY';
+    }
 
     return {
-      score: combinedScore,
+      score: matchType === 'NONE' ? 0 : Math.max(combinedScore, l2Score),
       matchType,
-      level: 'L2', // Resolved at L2 level (L3 was skipped)
+      level: 'L2', // Resolved at L2 level
       details: { l1WinnowingScore: l1Score, l2LcsScore: l2Score },
+      exactContributedLines,
     };
   }
 

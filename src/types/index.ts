@@ -65,6 +65,11 @@ export interface EvaluationResult {
     l2LcsScore?: number;
     l3AstScore?: number;
   };
+  /**
+   * The precise number of lines fully matching the AI source (Line-level Tracking).
+   * Overrides score-based estimated line attribution.
+   */
+  exactContributedLines?: number;
 }
 
 /**
