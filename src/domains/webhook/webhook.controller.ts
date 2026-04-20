@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express';
-import { DoMergePayload, MergeFileDetail, AttributionJobData } from '../../types';
+import { DoMergePayload, MergeFileDetail, AttributionJobData, AiMessage } from '../../types';
 import { QueueProducer } from '../../core/queue/queue.producer';
+import { getPool } from '../../core/database/database.config';
+import { RowDataPacket } from 'mysql2';
 
 /**
  * WebhookController — Express router for receiving CICD doMerge webhooks.
@@ -68,8 +70,48 @@ export function createWebhookRouter(queueProducer: QueueProducer): Router {
           `files: ${fileDetails.length}, operator: ${body.oa}`,
       );
 
+      // ─── Fetch AI messages from database for this user (body.oa) ────
+      const aiMessages: AiMessage[] = [];
+      try {
+        const pool = getPool();
+        // NOTE: Please adjust 'ai_messages' table name and column names if they differ in your schema.
+        const [rows] = await pool.query<RowDataPacket[]>(
+          `SELECT id, name, arguments, created_at 
+           FROM ai_messages 
+           WHERE oa = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 1 MONTH)`,
+          [body.oa]
+        );
+
+        for (const row of rows) {
+          try {
+            const args = JSON.parse(row.arguments);
+            let rawContent = '';
+            
+            if (row.name === 'edit' && args.newString) {
+              rawContent = args.newString;
+            } else if (row.name === 'write' && args.content) {
+              rawContent = args.content;
+            }
+
+            if (rawContent && rawContent.trim().length > 0) {
+              aiMessages.push({
+                messageId: String(row.id),
+                userId: body.oa,
+                timestamp: new Date(row.created_at),
+                rawContent: rawContent
+              });
+            }
+          } catch (parseErr) {
+            console.warn(`[Webhook] Failed to parse ai_message arguments for id ${row.id}`);
+          }
+        }
+        
+        console.log(`[Webhook] Fetched ${aiMessages.length} valid AI messages for user ${body.oa}`);
+      } catch (dbError) {
+        console.error(`[Webhook] Failed to fetch AI messages from DB:`, dbError);
+      }
+
       // ─── Construct job data ────────────────────────────
-      // TODO: Fetch AI messages from database for this user (body.oa)
       const jobData: AttributionJobData = {
         mergeId: body.mergeId,
         repoName: body.repoName,
@@ -77,7 +119,7 @@ export function createWebhookRouter(queueProducer: QueueProducer): Router {
         sysCode: body.sysCode,
         title: body.title,
         fileDetails,
-        aiMessages: [], // placeholder: should come from DB lookup by userId
+        aiMessages,
       };
 
       await queueProducer.addJob(jobData);

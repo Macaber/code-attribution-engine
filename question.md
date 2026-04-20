@@ -1,4 +1,4 @@
-# 如果diff 代码来源于多个 ai message，当前处理能分析到吗
+# Question1：如果diff 代码来源于多个 ai message，当前处理能分析到吗
 
 ## 当前实现的行为
 
@@ -39,7 +39,7 @@
 - 但不能识别“同一个 chunk 内混合多个 AI message”
 - 如果你要支持这种情况，需进一步做“chunk 细分”或“子块/行级”匹配逻辑
 
-# 当前 diff chunk 怎么分割的，按照不同文件的连续行作为一个 chunk 吗
+# Question2：当前 diff chunk 怎么分割的，按照不同文件的连续行作为一个 chunk 吗
 
 ## 当前 `DiffParser` 的分割规则就是
 
