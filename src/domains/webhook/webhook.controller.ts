@@ -67,7 +67,7 @@ export function createWebhookRouter(queueProducer: QueueProducer): Router {
 
       console.log(
         `[Webhook] doMerge received — mergeId: ${body.mergeId}, repo: ${body.repoName}, ` +
-          `files: ${fileDetails.length}, operator: ${body.oa}`,
+        `files: ${fileDetails.length}, operator: ${body.oa}`,
       );
 
       // ─── Fetch AI messages from database for this user (body.oa) ────
@@ -76,20 +76,20 @@ export function createWebhookRouter(queueProducer: QueueProducer): Router {
         const pool = getPool();
         // NOTE: Please adjust 'ai_messages' table name and column names if they differ in your schema.
         const [rows] = await pool.query<RowDataPacket[]>(
-          `SELECT id, name, arguments, created_at 
+          `SELECT id, function_name, function_arguments, created_at 
            FROM ai_messages 
-           WHERE oa = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 1 MONTH)`,
+           WHERE user_oa = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 1 MONTH)`,
           [body.oa]
         );
 
         for (const row of rows) {
           try {
-            const args = JSON.parse(row.arguments);
+            const args = JSON.parse(row.function_arguments);
             let rawContent = '';
-            
-            if (row.name === 'edit' && args.newString) {
+
+            if (row.function_name === 'edit' && args.newString) {
               rawContent = args.newString;
-            } else if (row.name === 'write' && args.content) {
+            } else if (row.function_name === 'write' && args.content) {
               rawContent = args.content;
             }
 
@@ -105,7 +105,7 @@ export function createWebhookRouter(queueProducer: QueueProducer): Router {
             console.warn(`[Webhook] Failed to parse ai_message arguments for id ${row.id}`);
           }
         }
-        
+
         console.log(`[Webhook] Fetched ${aiMessages.length} valid AI messages for user ${body.oa}`);
       } catch (dbError) {
         console.error(`[Webhook] Failed to fetch AI messages from DB:`, dbError);
