@@ -1,17 +1,17 @@
-import { Job, Worker } from 'bullmq';
+import Queue, { Job } from 'bull';
 import { AttributionWorker } from '../../domains/attribution/attribution.worker';
 import { AttributionJobData, MatchResult } from '../../types';
-import { QUEUE_NAME, getRedisConnection } from './queue.config';
+import { QUEUE_NAME, QUEUE_OPTIONS } from './queue.config';
 import { ReportService } from '../database/report.service';
 
 /**
- * QueueConsumer — BullMQ Worker that dequeues and processes attribution jobs.
+ * QueueConsumer — Bull Worker that dequeues and processes attribution jobs.
  *
  * Delegates actual analysis to AttributionWorker, persists results to MySQL,
  * and handles errors with failed-job recording.
  */
 export class QueueConsumer {
-  private readonly worker: Worker<AttributionJobData>;
+  private readonly queue: Queue.Queue<AttributionJobData>;
   private readonly attributionWorker: AttributionWorker;
   private readonly reportService: ReportService | null;
 
@@ -19,19 +19,15 @@ export class QueueConsumer {
     this.attributionWorker = new AttributionWorker();
     this.reportService = reportService ?? null;
 
-    this.worker = new Worker<AttributionJobData>(
-      QUEUE_NAME,
+    this.queue = new Queue<AttributionJobData>(QUEUE_NAME, QUEUE_OPTIONS);
+
+    // Set up processing for the 'analyze-merge' named job
+    this.queue.process(
+      'analyze-merge',
+      parseInt(process.env.WORKER_CONCURRENCY ?? '2', 10),
       async (job: Job<AttributionJobData>) => {
         return this.processJob(job);
-      },
-      {
-        connection: getRedisConnection(),
-        concurrency: parseInt(process.env.WORKER_CONCURRENCY ?? '2', 10),
-        limiter: {
-          max: 10,
-          duration: 60_000, // max 10 jobs per minute
-        },
-      },
+      }
     );
 
     this.setupEventHandlers();
@@ -99,19 +95,19 @@ export class QueueConsumer {
         error,
       );
 
-      throw error; // BullMQ will handle retry
+      throw error; // Bull will handle retry
     }
   }
 
   /**
-   * Set up BullMQ worker event handlers for monitoring.
+   * Set up Bull event handlers for monitoring.
    */
   private setupEventHandlers() {
-    this.worker.on('completed', (job) => {
+    this.queue.on('completed', (job) => {
       console.log(`[QueueConsumer] ✅ Job ${job.id} completed successfully`);
     });
 
-    this.worker.on('failed', async (job, error) => {
+    this.queue.on('failed', async (job, error) => {
       console.error(
         `[QueueConsumer] ❌ Job ${job?.id} failed:`,
         error.message,
@@ -120,22 +116,22 @@ export class QueueConsumer {
       // Persist failed job to MySQL for later retry
       if (this.reportService && job) {
         await this.reportService.saveFailedJob(
-          job.id,
+          job.id.toString(), // Bull job.id can be string | number
           job.data,
           error,
         );
       }
     });
 
-    this.worker.on('error', (error) => {
-      console.error('[QueueConsumer] Worker error:', error);
+    this.queue.on('error', (error) => {
+      console.error('[QueueConsumer] Queue error:', error);
     });
   }
 
   /**
-   * Gracefully shut down the worker.
+   * Gracefully shut down the worker/queue.
    */
   async close() {
-    await this.worker.close();
+    await this.queue.close();
   }
 }

@@ -1,28 +1,26 @@
-import { Queue } from 'bullmq';
+import Queue from 'bull';
 import { AttributionJobData } from '../../types';
-import { QUEUE_NAME, getRedisConnection, QUEUE_OPTIONS } from './queue.config';
+import { QUEUE_NAME, QUEUE_OPTIONS } from './queue.config';
 
 /**
- * QueueProducer — Pushes attribution analysis jobs to BullMQ.
+ * QueueProducer — Pushes attribution analysis jobs to Bull.
  */
 export class QueueProducer {
-  private readonly queue: Queue<AttributionJobData>;
+  private readonly queue: Queue.Queue<AttributionJobData>;
 
   constructor() {
-    this.queue = new Queue<AttributionJobData>(QUEUE_NAME, {
-      connection: getRedisConnection(),
-      ...QUEUE_OPTIONS,
-    });
+    this.queue = new Queue<AttributionJobData>(QUEUE_NAME, QUEUE_OPTIONS);
   }
 
   /**
    * Add a new attribution analysis job to the queue.
    *
    * @param data - Job data containing diff and AI messages
-   * @returns The created BullMQ Job
+   * @returns The created Bull Job
    */
   async addJob(data: AttributionJobData) {
     const jobId = `${data.mergeId}-${Date.now()}`;
+    // Bull's add signature for named jobs is add(name, data, options)
     const job = await this.queue.add('analyze-merge', data, {
       jobId,
     });
