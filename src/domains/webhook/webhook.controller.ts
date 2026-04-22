@@ -3,6 +3,7 @@ import { DoMergePayload, MergeFileDetail, AttributionJobData, AiMessage } from '
 import { QueueProducer } from '../../core/queue/queue.producer';
 import { getPool } from '../../core/database/database.config';
 import { RowDataPacket } from 'mysql2';
+import { JsonRepairUtil } from '../../core/utils/json-repair.util';
 
 /**
  * WebhookController — Express router for receiving CICD doMerge webhooks.
@@ -84,7 +85,7 @@ export function createWebhookRouter(queueProducer: QueueProducer): Router {
 
         for (const row of rows) {
           try {
-            const args = JSON.parse(row.function_arguments);
+            const args = JsonRepairUtil.repairAndParse<any>(row.function_arguments);
             let rawContent = '';
 
             if (row.function_name === 'edit' && args.newString) {

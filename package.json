@@ -28,7 +28,7 @@
     "tree-sitter-wasms": "^0.1.13",
     "ts-node": "^10.9.2",
     "typescript": "^6.0.2",
-    "web-tree-sitter": "^0.26.8"
+    "web-tree-sitter": "^0.22.6"
   },
   "devDependencies": {
     "@types/bull": "^3.15.9",

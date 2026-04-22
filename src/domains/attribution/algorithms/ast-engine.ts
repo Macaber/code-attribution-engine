@@ -1,9 +1,7 @@
-import {
-  Parser,
-  Language,
-  Node as SyntaxNode,
-  Tree,
-} from 'web-tree-sitter';
+import Parser from 'web-tree-sitter';
+type Language = Parser.Language;
+type SyntaxNode = Parser.SyntaxNode;
+type Tree = Parser.Tree;
 import * as path from 'path';
 import * as fs from 'fs';
 import { LRUCache } from '../../../core/cache/lru-cache';
@@ -79,7 +77,7 @@ export class AstFeatureEngine {
     }
 
     try {
-      const language = await Language.load(wasmPath);
+      const language = await Parser.Language.load(wasmPath);
       this.loadedLanguages.set(grammarName, language);
       return language;
     } catch (error) {
