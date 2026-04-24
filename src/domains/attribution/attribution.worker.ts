@@ -212,7 +212,9 @@ export class AttributionWorker {
   ): {
     /** Total lines of code across ALL files (from merged file content) */
     totalCodeLines: number;
-    /** Lines from diff chunks that were actually analyzed by the pipeline */
+    /** Raw diff line count including blank lines */
+    diffLines: number;
+    /** Non-blank lines from diff chunks (used as denominator for AI ratio) */
     analyzedLines: number;
     /** AI contributed lines (weighted by match score) */
     aiContributedLines: number;
@@ -248,9 +250,21 @@ export class AttributionWorker {
       level: string;
     }>;
   } {
-    // ── Analyzed lines (from diff chunks) ──
-    const analyzedLines = results.reduce(
+    // ── Diff lines = raw line count including blank lines ──
+    const diffLines = results.reduce(
       (sum, r) => sum + (r.chunk.endLine - r.chunk.startLine + 1),
+      0,
+    );
+
+    // ── Analyzed lines = non-blank lines only (matches exactContributedLines counting basis) ──
+    const analyzedLines = results.reduce(
+      (sum, r) => {
+        const chunkContent = r.chunk.content;
+        const nonBlankCount = chunkContent
+          .split('\n')
+          .filter(line => line.trim().length > 0).length;
+        return sum + nonBlankCount;
+      },
       0,
     );
     const aiContributedLines = results.reduce(
@@ -314,6 +328,7 @@ export class AttributionWorker {
 
     return {
       totalCodeLines,
+      diffLines,
       analyzedLines,
       aiContributedLines: Math.round(aiContributedLines * 100) / 100,
       aiContributionRatio:

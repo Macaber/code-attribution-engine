@@ -98,14 +98,14 @@ export class SimilarityEngine {
     // ── Pre-calculate Exact Traceable Line Contributions via LCS ──
     // This allows us to track exactly which lines match, ignoring total length scores.
     const matchedIndices = this.lcs.calculateTraceableLcs(normalizedAi, normalizedChunk);
-    
+
     // Group matched chars by line
     const matchedCharsPerLine = new Map<number, number>();
     for (const charIndex of matchedIndices) {
       const lineIndex = chunkMapping.charToLineMap[charIndex];
       matchedCharsPerLine.set(lineIndex, (matchedCharsPerLine.get(lineIndex) ?? 0) + 1);
     }
-    
+
     let exactContributedLines = 0;
     // We consider a line "contributed by AI" if >= 40% of its meaningful characters match
     for (const [lineIndex, validTotalChars] of chunkMapping.lineCharCounts.entries()) {
@@ -183,7 +183,7 @@ export class SimilarityEngine {
         exactContributedLines,
       };
     }
-    
+
     // We intentionally removed L2 fastFail here. Even if L2 score is < 0.30, 
     // it might still contain `exactContributedLines > 0`. We let it escalate to L3, 
     // and if L3 fails, our buildFallbackResult will secure the matched lines.
@@ -216,9 +216,9 @@ export class SimilarityEngine {
       // Scope L3 to diff region if line range is available
       const diffLineRange = (options?.chunkStartLine && options?.chunkEndLine)
         ? {
-            startLine: options.chunkStartLine - 1, // Tree-sitter uses 0-indexed rows
-            endLine: options.chunkEndLine - 1,
-          }
+          startLine: options.chunkStartLine - 1, // Tree-sitter uses 0-indexed rows
+          endLine: options.chunkEndLine - 1,
+        }
         : undefined;
 
       const l3Score = await this.astEngine.compareFeatures(
@@ -270,7 +270,7 @@ export class SimilarityEngine {
 
     // Use legacy thresholds for L1+L2-only classification
     let matchType: EvaluationResult['matchType'] = 'NONE';
-    
+
     // ── NEW LOGIC: Any precise copied lines act as a Ground Truth Floor ──
     if (exactContributedLines > 0) {
       matchType = 'FUZZY';

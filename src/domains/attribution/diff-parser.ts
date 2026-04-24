@@ -45,7 +45,7 @@ export class DiffParser {
               startLine = change.ln;
             }
             endLine = change.ln;
-            currentLines.push(change.content);
+            currentLines.push(change.content.substring(1)); // Strip '+' prefix from parse-diff
           } else {
             // Non-add line breaks the contiguous block
             if (currentLines.length > 0 && startLine !== null) {

@@ -53,7 +53,7 @@ export class Normalizer {
     for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       // Step 3 & 4 equivalent for a single line
       const stripped = lines[lineIndex].replace(/\s+/g, '').toLowerCase();
-      
+
       if (stripped.length > 0) {
         normalizedText += stripped;
         for (let i = 0; i < stripped.length; i++) {

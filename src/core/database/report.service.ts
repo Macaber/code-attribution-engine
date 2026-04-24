@@ -20,6 +20,7 @@ export class ReportService {
     jobData: AttributionJobData,
     summary: {
       totalCodeLines: number;
+      diffLines: number;
       analyzedLines: number;
       aiContributedLines: number;
       aiContributionRatio: number;
@@ -53,13 +54,14 @@ export class ReportService {
       const [reportResult] = await conn.execute<ResultSetHeader>(
         `INSERT INTO attribution_reports
           (merge_id, repo_name, user_id, sys_code, title,
-           total_code_lines, analyzed_lines, ai_contributed_lines, ai_contribution_ratio,
+           total_code_lines, diff_lines, analyzed_lines, ai_contributed_lines, ai_contribution_ratio,
            skipped_lines, skipped_file_count,
            strict_matches, fuzzy_matches, deep_refactor_matches, no_matches,
            elapsed_ms)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
            total_code_lines = VALUES(total_code_lines),
+           diff_lines = VALUES(diff_lines),
            analyzed_lines = VALUES(analyzed_lines),
            ai_contributed_lines = VALUES(ai_contributed_lines),
            ai_contribution_ratio = VALUES(ai_contribution_ratio),
@@ -77,6 +79,7 @@ export class ReportService {
           jobData.sysCode ?? null,
           jobData.title ?? null,
           summary.totalCodeLines,
+          summary.diffLines,
           summary.analyzedLines,
           summary.aiContributedLines,
           summary.aiContributionRatio,

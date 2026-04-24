@@ -54,6 +54,7 @@ export class QueueConsumer {
       console.log(
         `[QueueConsumer] Job ${job.id} completed in ${elapsed}ms — ` +
         `totalCodeLines: ${summary.totalCodeLines}, ` +
+        `diffLines: ${summary.diffLines}, ` +
         `analyzedLines: ${summary.analyzedLines}, ` +
         `aiContributedLines: ${summary.aiContributedLines} (${(summary.aiContributionRatio * 100).toFixed(1)}%), ` +
         `skippedLines: ${summary.skippedLines} (${summary.skippedFileCount} files), ` +
