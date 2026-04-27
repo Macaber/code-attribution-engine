@@ -1,12 +1,12 @@
 import { Router, Request, Response } from 'express';
-import { DoMergePayload, MergeFileDetail, AttributionJobData, AiMessage } from '../../types';
-import { QueueProducer } from '../../core/queue/queue.producer';
-import { getPool } from '../../core/database/database.config';
+import { DoMergePayload, MergeFileDetail, AttributionJobData, AiMessage } from '../types';
+import { QueueProducer } from '../core/queue/queue.producer';
+import { getPool } from '../core/database/database.config';
 import { RowDataPacket } from 'mysql2';
-import { JsonRepairUtil } from '../../core/utils/json-repair.util';
+import { JsonRepairUtil } from '../core/utils/json-repair.util';
 
 /**
- * WebhookController — Express router for receiving CICD doMerge webhooks.
+ * WebhookRoute — Express router for receiving CICD doMerge webhooks.
  *
  * POST /api/coding/doMerge
  * Receives merge data with embedded diffs, parses the detail field,

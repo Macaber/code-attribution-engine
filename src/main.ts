@@ -29,11 +29,12 @@ async function main() {
   }
 
   // ─── Start Express Server ─────────────────────────────
-  const { app, queueProducer } = createApp();
+  const { app, queueProducer } = createApp(reportService);
   const server = app.listen(PORT, () => {
     console.log(`[Server] HTTP server listening on port ${PORT}`);
     console.log(`[Server] Health check: http://localhost:${PORT}/health`);
     console.log(`[Server] doMerge webhook: POST http://localhost:${PORT}/api/coding/doMerge`);
+    console.log(`[Server] Report queries: GET http://localhost:${PORT}/api/reports`);
   });
 
   // ─── Start BullMQ Consumer ────────────────────────────
