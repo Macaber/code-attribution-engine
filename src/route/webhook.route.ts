@@ -75,12 +75,15 @@ export function createWebhookRouter(queueProducer: QueueProducer): Router {
       const aiMessages: AiMessage[] = [];
       try {
         const pool = getPool();
+        const oneMonthAgo = new Date();
+        oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+
         // NOTE: Please adjust 'ai_messages' table name and column names if they differ in your schema.
         const [rows] = await pool.query<RowDataPacket[]>(
           `SELECT id, function_name, function_arguments, created_at 
            FROM ai_messages 
-           WHERE user_oa = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 1 MONTH)`,
-          [body.oa]
+           WHERE user_oa = ? AND created_at >= ?`,
+          [body.oa, oneMonthAgo]
         );
 
         for (const row of rows) {

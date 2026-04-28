@@ -107,10 +107,12 @@ export class SimilarityEngine {
     }
 
     let exactContributedLines = 0;
-    // We consider a line "contributed by AI" if >= 40% of its meaningful characters match
+    // A line is counted as AI-contributed (1) or not (0).
+    // Threshold at 70% to filter out global LCS char leakage from other AI lines.
+    const PER_LINE_MATCH_THRESHOLD = 0.70;
     for (const [lineIndex, validTotalChars] of chunkMapping.lineCharCounts.entries()) {
       const matched = matchedCharsPerLine.get(lineIndex) ?? 0;
-      if (validTotalChars > 0 && (matched / validTotalChars) >= 0.40) {
+      if (validTotalChars > 0 && (matched / validTotalChars) >= PER_LINE_MATCH_THRESHOLD) {
         exactContributedLines++;
       }
     }
