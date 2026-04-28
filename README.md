@@ -198,6 +198,9 @@ npm run dev
 
 ```text
 src/
+├── route/                           # REST API 路由与接入层
+│   ├── webhook.route.ts             # POST /api/coding/doMerge 核心 Webhook
+│   └── report.route.ts              # GET /api/reports 归因报告查询接口
 ├── core/
 │   ├── queue/                       # BullMQ 队列配置与生产者/消费者
 │   │   ├── queue.config.ts          # Redis 连接 & 队列选项
@@ -205,22 +208,20 @@ src/
 │   │   └── queue.consumer.ts        # 任务出队 & 调度 Worker + MySQL 持久化
 │   ├── database/                    # MySQL 持久化层
 │   │   ├── database.config.ts       # 连接池配置 (mysql2/promise)
-│   │   ├── report.service.ts        # 报告写入 + 失败任务记录 + 重试管理
+│   │   ├── report.service.ts        # 报告查询、写入与管理
 │   │   └── migrations/
-│   │       └── 001_attribution_tables.sql  # 建表 DDL (3张表)
+│   │       └── 001_attribution_tables.sql  # 建表 DDL (归因主表与明细2张表)
 │   └── cache/
 │       └── lru-cache.ts             # LRU 缓存 (AST 解析复用, 50 条/5 分钟 TTL)
 ├── domains/
-│   ├── webhook/
-│   │   └── webhook.controller.ts    # POST /api/coding/doMerge 接入层
 │   └── attribution/                 # 👉 核心算法层
-│       ├── normalizer.ts            # 预处理: 注释/空白/大小写清洗
+│       ├── normalizer.ts            # 预处理: 忽略空白/大小写, 保留注释
 │       ├── diff-parser.ts           # Git Diff 解析 → DiffChunk[]
 │       ├── similarity-engine.ts     # 三层漏斗管线 (L1→L2→L3)
 │       ├── attribution.worker.ts    # 管线编排器 (async, 文件上下文传递)
 │       └── algorithms/
-│           ├── winnowing.ts         # L1: 文档指纹
-│           ├── lcs.ts               # L2: 最长公共子序列 (DP + 熔断器)
+│           ├── winnowing.ts         # L1: 文档指纹 (K-gram Hash)
+│           ├── lcs.ts               # L2: 最长公共子序列 (DP 行级溯源)
 │           ├── ast-engine.ts        # L3: Tree-sitter AST 特征提取 + Jaccard
 │           ├── language-map.ts      # 文件扩展名 → Grammar 映射
 │           └── grammars/            # Tree-sitter .wasm 语法文件
@@ -228,15 +229,12 @@ src/
 │               ├── tree-sitter-java.wasm
 │               ├── tree-sitter-javascript.wasm
 │               ├── tree-sitter-python.wasm
-│               ├── tree-sitter-css.wasm
 │               ├── tree-sitter-go.wasm
-│               ├── tree-sitter-c.wasm
-│               ├── tree-sitter-cpp.wasm
-│               └── tree-sitter-tsx.wasm
+│               └── tree-sitter-*.wasm
 ├── types/
 │   └── index.ts                     # 全局 TS 接口与类型定义
-├── app.ts                           # Express 应用配置
-└── main.ts                          # 入口 & 优雅关闭
+├── app.ts                           # Express 应用路由挂载与配置
+└── main.ts                          # 依赖注入入口 & 优雅关闭
 ```
 
 ## 🧪 测试 (Tests)
