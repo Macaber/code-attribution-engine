@@ -1,0 +1,5 @@
+com/macaber/attribution/core/SimilarityEngineTest.class
+com/macaber/attribution/core/DiffParserTest.class
+com/macaber/attribution/core/WinnowingTest.class
+com/macaber/attribution/core/LcsTest.class
+com/macaber/attribution/core/NormalizerTest.class

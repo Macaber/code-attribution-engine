@@ -70,36 +70,51 @@ export interface EvaluationResult {
    * Overrides score-based estimated line attribution.
    */
   exactContributedLines?: number;
+  /**
+   * The specific line indices (0-indexed, relative to chunk) that were
+   * matched at >= 70% per-line threshold. Used for cross-message
+   * union deduplication.
+   */
+  contributedLineIndices?: Set<number>;
+}
+
+/** A single AI message's contribution to a chunk */
+export interface MessageContribution {
+  messageId: string;
+  score: number;           // 0.0 – 1.0
+  matchType: MatchType;
+  level: PipelineLevel;
+  details: {
+    l1WinnowingScore?: number;
+    l2LcsScore?: number;
+    l3AstScore?: number;
+  };
 }
 
 /**
  * Result of matching a single DiffChunk against all AiMessages.
- * Contains the best match found and the attribution classification.
+ * Supports multi-message attribution: all AI messages with >= 10%
+ * contribution are tracked, and their contributed lines are unioned
+ * to avoid double-counting.
  */
 export interface MatchResult {
   /** The diff chunk being evaluated */
   chunk: DiffChunk;
-  /** The best matching AI message, or null if no match found */
-  bestMatch: {
-    messageId: string;
-    score: number;           // 0.0 – 1.0
-    matchType: MatchType;
-    level: PipelineLevel;
-    details: {
-      l1WinnowingScore?: number;
-      l2LcsScore?: number;
-      l3AstScore?: number;
-    };
-  } | null;
+  /** The best matching AI message (highest score), or null if no match found */
+  bestMatch: MessageContribution | null;
+  /** All AI messages that contributed >= 10% to this chunk */
+  matchedMessages: MessageContribution[];
+  /** Comma-separated messageIds of all contributing messages (for DB storage) */
+  matchedMessageIds: string;
   /**
-   * Attribution classification derived from matchType:
+   * Attribution classification derived from the best matchType:
    * - 'strict':        STRICT match (score >= 0.90 at L1)
    * - 'fuzzy':         FUZZY match (score >= 0.80 at L2)
    * - 'deep_refactor': DEEP_REFACTOR (score >= 0.60 at L3)
    * - 'none':          No significant match
    */
   attribution: 'strict' | 'fuzzy' | 'deep_refactor' | 'none';
-  /** Number of lines attributed to AI contribution */
+  /** Number of lines attributed to AI contribution (union-deduplicated across all messages) */
   contributedLines: number;
 }
 

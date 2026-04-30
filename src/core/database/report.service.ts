@@ -38,6 +38,7 @@ export class ReportService {
         attribution: string;
         contributedLines: number;
         matchedMessageId: string | null;
+        matchedMessageIds: string;
         score: number;
         matchType: string;
         level: string;
@@ -115,7 +116,7 @@ export class ReportService {
         const values: any[] = [];
 
         for (const chunk of summary.chunkDetails) {
-          placeholders.push('(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+          placeholders.push('(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
           values.push(
             reportId,
             chunk.filePath,
@@ -125,6 +126,7 @@ export class ReportService {
             chunk.attribution,
             chunk.contributedLines,
             chunk.matchedMessageId,
+            chunk.matchedMessageIds || null,
             chunk.score,
             chunk.matchType,
             chunk.level,
@@ -134,7 +136,7 @@ export class ReportService {
         await conn.execute(
           `INSERT INTO attribution_chunk_details
             (report_id, file_path, start_line, end_line, total_lines,
-             attribution, contributed_lines, matched_message_id,
+             attribution, contributed_lines, matched_message_id, matched_message_ids,
              score, match_type, level)
            VALUES ${placeholders.join(', ')}`,
           values,
@@ -398,7 +400,7 @@ export class ReportService {
     const [chunkRows] = await this.pool.execute<any[]>(
       `SELECT
          id, file_path, start_line, end_line, total_lines,
-         attribution, contributed_lines, matched_message_id,
+         attribution, contributed_lines, matched_message_id, matched_message_ids,
          score, match_type, level
        FROM attribution_chunk_details
        WHERE report_id = ?
@@ -415,6 +417,7 @@ export class ReportService {
       attribution: row.attribution,
       contributedLines: Number(row.contributed_lines),
       matchedMessageId: row.matched_message_id,
+      matchedMessageIds: row.matched_message_ids || '',
       score: Number(row.score),
       matchType: row.match_type,
       level: row.level,

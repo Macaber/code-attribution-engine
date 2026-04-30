@@ -3,7 +3,7 @@ version: '3.8'
 services:
   # --- Code Attribution Engine ---
   app:
-    build: .
+    image: code:v1
     container_name: code-attribution-engine
     ports:
       - "3000:3000"

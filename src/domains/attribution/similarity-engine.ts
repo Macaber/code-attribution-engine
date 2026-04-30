@@ -92,7 +92,7 @@ export class SimilarityEngine {
     const normalizedChunk = chunkMapping.normalizedText;
 
     if (!normalizedAi || !normalizedChunk) {
-      return { score: 0, matchType: 'NONE', level: 'FAILED_ALL', details: {}, exactContributedLines: 0 };
+      return { score: 0, matchType: 'NONE', level: 'FAILED_ALL', details: {}, exactContributedLines: 0, contributedLineIndices: new Set() };
     }
 
     // ── Pre-calculate Exact Traceable Line Contributions via LCS ──
@@ -107,6 +107,7 @@ export class SimilarityEngine {
     }
 
     let exactContributedLines = 0;
+    const contributedLineIndices = new Set<number>();
     // A line is counted as AI-contributed (1) or not (0).
     // Threshold at 70% to filter out global LCS char leakage from other AI lines.
     const PER_LINE_MATCH_THRESHOLD = 0.70;
@@ -114,6 +115,7 @@ export class SimilarityEngine {
       const matched = matchedCharsPerLine.get(lineIndex) ?? 0;
       if (validTotalChars > 0 && (matched / validTotalChars) >= PER_LINE_MATCH_THRESHOLD) {
         exactContributedLines++;
+        contributedLineIndices.add(lineIndex);
       }
     }
 
@@ -152,6 +154,7 @@ export class SimilarityEngine {
           level: 'L1',
           details: { l1WinnowingScore: l1Score },
           exactContributedLines,
+          contributedLineIndices,
         };
       }
       if (l1Score <= this.config.l1.fastFail) {
@@ -161,6 +164,7 @@ export class SimilarityEngine {
           level: 'L1',
           details: { l1WinnowingScore: l1Score },
           exactContributedLines,
+          contributedLineIndices,
         };
       }
     }
@@ -183,6 +187,7 @@ export class SimilarityEngine {
         level: 'L2',
         details: { l1WinnowingScore: l1Score, l2LcsScore: l2Score },
         exactContributedLines,
+        contributedLineIndices,
       };
     }
 
@@ -198,19 +203,19 @@ export class SimilarityEngine {
     const addedLines = options?.addedLineCount ?? 0;
     if (addedLines > this.config.maxLinesForL3) {
       // Fall through to final scoring with L1+L2 only
-      return this.buildFallbackResult(l1Score, l2Score, exactContributedLines);
+      return this.buildFallbackResult(l1Score, l2Score, exactContributedLines, contributedLineIndices);
     }
 
     // Language check: skip L3 for non-parseable files
     const filePath = options?.filePath;
     if (!filePath || !isL3Eligible(filePath)) {
-      return this.buildFallbackResult(l1Score, l2Score, exactContributedLines);
+      return this.buildFallbackResult(l1Score, l2Score, exactContributedLines, contributedLineIndices);
     }
 
     // Need full file content for proper AST parsing
     const fileContent = options?.fileContent;
     if (!fileContent) {
-      return this.buildFallbackResult(l1Score, l2Score, exactContributedLines);
+      return this.buildFallbackResult(l1Score, l2Score, exactContributedLines, contributedLineIndices);
     }
 
     // Run L3 AST comparison
@@ -232,7 +237,7 @@ export class SimilarityEngine {
 
       if (l3Score === null) {
         // Grammar not available — graceful language fallback
-        return this.buildFallbackResult(l1Score, l2Score, exactContributedLines);
+        return this.buildFallbackResult(l1Score, l2Score, exactContributedLines, contributedLineIndices);
       }
 
       if (l3Score >= this.config.l3.pass) {
@@ -246,17 +251,18 @@ export class SimilarityEngine {
             l3AstScore: l3Score,
           },
           exactContributedLines,
+          contributedLineIndices,
         };
       }
     } catch (error) {
       // L3 failed — graceful degradation to L1+L2
       console.warn('[SimilarityEngine] L3 AST analysis failed, falling back to L1+L2:', error);
-      return this.buildFallbackResult(l1Score, l2Score, exactContributedLines);
+      return this.buildFallbackResult(l1Score, l2Score, exactContributedLines, contributedLineIndices);
     }
 
     // All layers evaluated. Did we find any structural match?
     // If we've reached here, L3 didn't pass or skipped, so we fallback to L1+L2 evaluation.
-    return this.buildFallbackResult(l1Score, l2Score, exactContributedLines);
+    return this.buildFallbackResult(l1Score, l2Score, exactContributedLines, contributedLineIndices);
   }
 
   /**
@@ -266,6 +272,7 @@ export class SimilarityEngine {
     l1Score: number,
     l2Score: number,
     exactContributedLines: number,
+    contributedLineIndices: Set<number>,
   ): EvaluationResult {
     const combinedScore =
       this.weights.winnowing * l1Score + this.weights.lcs * l2Score;
@@ -273,7 +280,9 @@ export class SimilarityEngine {
     // Use legacy thresholds for L1+L2-only classification
     let matchType: EvaluationResult['matchType'] = 'NONE';
 
-    // ── NEW LOGIC: Any precise copied lines act as a Ground Truth Floor ──
+    // ── Ground Truth Floor ──
+    // Any precise copied lines (verified at 70% per-line threshold) act as
+    // definitive evidence of AI contribution, regardless of overall chunk score.
     if (exactContributedLines > 0) {
       matchType = 'FUZZY';
     } else {
@@ -287,6 +296,7 @@ export class SimilarityEngine {
       level: 'L2', // Resolved at L2 level
       details: { l1WinnowingScore: l1Score, l2LcsScore: l2Score },
       exactContributedLines,
+      contributedLineIndices,
     };
   }
 

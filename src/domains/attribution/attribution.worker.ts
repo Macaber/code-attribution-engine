@@ -121,14 +121,28 @@ export class AttributionWorker {
 
   /**
    * Run the escalation pipeline for a single chunk against all AI messages.
-   * Takes the best match across all messages.
+   *
+   * Multi-message strategy:
+   *   1. Evaluate each AI message against this chunk
+   *   2. Keep all messages whose L2 score >= 10% (meaningful contribution)
+   *   3. Union all contributedLineIndices across qualifying messages (dedup)
+   *   4. Final exactContributedLines = union set size
+   *   5. Best match = highest-scoring message (drives attribution classification)
    */
+  private readonly MULTI_MSG_THRESHOLD = 0.10; // 10% L2 score minimum
+
   private async processChunk(
     chunk: EnrichedChunk,
     messages: Array<AiMessage & { normalizedContent: string }>,
   ): Promise<MatchResult> {
-    let bestResult: EvaluationResult | null = null;
-    let bestMessageId: string | null = null;
+    // Collect all qualifying message evaluations
+    interface CandidateMatch {
+      messageId: string;
+      result: EvaluationResult;
+    }
+
+    const candidates: CandidateMatch[] = [];
+    let bestCandidate: CandidateMatch | null = null;
 
     for (const msg of messages) {
       if (!msg.normalizedContent) continue;
@@ -145,37 +159,56 @@ export class AttributionWorker {
         },
       );
 
-      if (!bestResult || result.score > bestResult.score) {
-        bestResult = result;
-        bestMessageId = msg.messageId;
+      // Track best match (highest score)
+      if (!bestCandidate || result.score > bestCandidate.result.score) {
+        bestCandidate = { messageId: msg.messageId, result };
       }
 
-      // Early exit: if L1 STRICT match found, no need to check other messages
+      // Collect all messages with >= 10% contribution (L2 score basis)
+      const l2Score = result.details.l2LcsScore ?? result.score;
+      if (l2Score >= this.MULTI_MSG_THRESHOLD && result.matchType !== 'NONE') {
+        candidates.push({ messageId: msg.messageId, result });
+      }
+
+      // Early exit: if L1 STRICT match found, this single message explains the whole chunk
       if (result.matchType === 'STRICT') break;
     }
 
-    // ── Build MatchResult ──
-    const attribution = bestResult
-      ? SimilarityEngine.matchTypeToAttribution(bestResult.matchType)
+    // ── Union-merge contributedLineIndices across all qualifying messages ──
+    const mergedLineIndices = new Set<number>();
+    for (const c of candidates) {
+      if (c.result.contributedLineIndices) {
+        for (const idx of c.result.contributedLineIndices) {
+          mergedLineIndices.add(idx);
+        }
+      }
+    }
+
+    // ── Build attribution from best match ──
+    const attribution = bestCandidate
+      ? SimilarityEngine.matchTypeToAttribution(bestCandidate.result.matchType)
       : 'none';
 
     const totalLines = chunk.endLine - chunk.startLine + 1;
     let contributedLines: number;
 
+    // Use union-merged line count instead of single-message count
+    const unionContributedLines = mergedLineIndices.size;
+
     switch (attribution) {
       case 'strict':
-        contributedLines = bestResult?.exactContributedLines ?? totalLines;
+        // For strict match, use union lines if available, otherwise total
+        contributedLines = unionContributedLines > 0 ? unionContributedLines : totalLines;
         break;
       case 'fuzzy':
-        // Fuzzy (L2 partial match) relies purely on exact traced lines now
-        contributedLines = bestResult?.exactContributedLines ?? 0;
+        // Fuzzy relies purely on exact traced lines (now union-merged)
+        contributedLines = unionContributedLines;
         break;
       case 'deep_refactor':
-        // Deep refactor means text didn't match (L2 = 0) but AST logic (L3) matched heavily.
-        // Since we can't trace exact characters to lines, we use the structural similarity scale.
+        // Deep refactor: max of union lines vs structural estimate
         contributedLines = Math.max(
-          bestResult?.exactContributedLines ?? 0,
-          totalLines * (bestResult?.score ?? 0)
+          unionContributedLines,
+          totalLines * (bestCandidate?.result.score ?? 0),
         );
         break;
       case 'none':
@@ -184,17 +217,33 @@ export class AttributionWorker {
         break;
     }
 
+    // ── Build matchedMessages array ──
+    const matchedMessages = candidates.map(c => ({
+      messageId: c.messageId,
+      score: c.result.score,
+      matchType: c.result.matchType,
+      level: c.result.level,
+      details: c.result.details,
+    }));
+
+    // Sort by score descending for readability
+    matchedMessages.sort((a, b) => b.score - a.score);
+
+    const bestMatch = bestCandidate
+      ? {
+          messageId: bestCandidate.messageId,
+          score: bestCandidate.result.score,
+          matchType: bestCandidate.result.matchType,
+          level: bestCandidate.result.level,
+          details: bestCandidate.result.details,
+        }
+      : null;
+
     return {
       chunk,
-      bestMatch: bestResult && bestMessageId
-        ? {
-            messageId: bestMessageId,
-            score: bestResult.score,
-            matchType: bestResult.matchType,
-            level: bestResult.level,
-            details: bestResult.details,
-          }
-        : null,
+      bestMatch,
+      matchedMessages,
+      matchedMessageIds: matchedMessages.map(m => m.messageId).join(','),
       attribution,
       contributedLines: Math.round(contributedLines * 100) / 100,
     };
@@ -245,6 +294,7 @@ export class AttributionWorker {
       attribution: string;
       contributedLines: number;
       matchedMessageId: string | null;
+      matchedMessageIds: string;
       score: number;
       matchType: string;
       level: string;
@@ -292,16 +342,22 @@ export class AttributionWorker {
     }
 
     // ── Message breakdown: aggregate contributions per AI messageId ──
+    // Now iterates over all matchedMessages (not just bestMatch)
     const msgMap = new Map<string, { contributedLines: number; chunkCount: number; matchTypes: Set<string> }>();
 
     for (const r of results) {
-      if (r.bestMatch && r.attribution !== 'none') {
-        const id = r.bestMatch.messageId;
-        const entry = msgMap.get(id) ?? { contributedLines: 0, chunkCount: 0, matchTypes: new Set() };
-        entry.contributedLines += r.contributedLines;
-        entry.chunkCount++;
-        entry.matchTypes.add(r.attribution);
-        msgMap.set(id, entry);
+      if (r.attribution !== 'none') {
+        // Distribute contributed lines proportionally across all matched messages
+        const msgCount = r.matchedMessages.length;
+        const perMsgLines = msgCount > 0 ? r.contributedLines / msgCount : 0;
+
+        for (const mm of r.matchedMessages) {
+          const entry = msgMap.get(mm.messageId) ?? { contributedLines: 0, chunkCount: 0, matchTypes: new Set() };
+          entry.contributedLines += perMsgLines;
+          entry.chunkCount++;
+          entry.matchTypes.add(r.attribution);
+          msgMap.set(mm.messageId, entry);
+        }
       }
     }
 
@@ -321,6 +377,7 @@ export class AttributionWorker {
       attribution: r.attribution,
       contributedLines: r.contributedLines,
       matchedMessageId: r.bestMatch?.messageId ?? null,
+      matchedMessageIds: r.matchedMessageIds,
       score: r.bestMatch?.score ?? 0,
       matchType: r.bestMatch?.matchType ?? 'NONE',
       level: r.bestMatch?.level ?? 'FAILED_ALL',

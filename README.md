@@ -59,22 +59,26 @@
    * `AttributionWorker` 读取 `doMerge` 的 `fileDetails`，把每个 chunk 和对应文件的完整 `code` 关联起来。
    * 同时统计每个文件的新增行数，用于 L3 的熔断保护。
 
-3. **逐 chunk 对比 AI Messages**
+3. **逐 chunk 对比 AI Messages (多消息归因)**
    * 每个 `DiffChunk` 会依次对比所有用户历史 AI message。
    * `SimilarityEngine.evaluateChunk()` 对 chunk 内容和每条 AI 代码分别执行 L1/L2/L3。
-   * 只保留分数最高的那条 AI message 作为该 chunk 的“最佳匹配”。
+   * 所有 L2 score >= 10% 且匹配类型非 `NONE` 的 AI message 都会被记录为该 chunk 的贡献消息。
    * 如果某条消息在 L1 即命中 `STRICT`，则会提前终止该 chunk 的其余消息比较。
+   * 分数最高的 AI message 作为 `bestMatch`（驱动归因分类），所有贡献消息以逗号分隔存入 `matchedMessageIds`。
 
-4. **Chunk 级归因**
-   * 当前系统是“chunk 级别”归因：一个 chunk 最终只会分配给一个最佳 AI message。
-   * 贡献行数根据匹配类型计算：
-     * `STRICT` = 全部行数 × 1.0
-     * 当发生深度重构时，采用行数与结构的乘积：`行数 × score`
-     * 这避免了模糊统计带来的粗放归因误差。
+4. **Chunk 级归因 (跨消息去重)**
+   * 每条贡献消息各自通过 LCS 回溯出 `contributedLineIndices`（具体哪些行被命中）。
+   * 系统对所有贡献消息的行索引做 **Set Union（并集合并）**，同一行被多个消息命中时只算一次。
+   * 最终 `contributedLines = union.size`，杜绝重复计算。
+   * 贡献行数根据最佳匹配类型确定计算方式：
+     * `STRICT` = union 追溯行数（未追溯到则全长兜底）
+     * `FUZZY` = union 追溯行数
+     * `DEEP_REFACTOR` = MAX(union 追溯行数, 总行数 x L3 结构分)
 
 5. **汇总输出**
    * `AttributionWorker.summarize()` 将所有 chunk 的 `contributedLines` 累加，生成总 AI 贡献行数与 AI 贡献比例。
-   * 还会生成每条消息的贡献汇总和每个 chunk 的详细归因信息。
+   * `messageBreakdown` 中每条 AI message 的贡献行数按参与消息数等比分摊。
+   * 每个 chunk 的详细归因信息包含 `matchedMessageIds`（逗号分隔），支持完整的数据库关联回溯。
 
 ---
 
@@ -109,7 +113,7 @@
 ### 第二层：LCS 最长公共子序列精准追踪 (L2 - 行级溯源层)
 
 * **原理**: 引擎在内存中平铺一维化二维规模的 DP 矩阵。不再只满足于算出最长公共字符数，而是通过 **Backtracking（回溯）** 逆向将所命中的所有有效共性字符位置全部提取。
-* **映射锁定**: 拿着这些匹配位置去问预处理时留下的 `charToLineMap`，只要它发现原始代码的某一行被 AI 的字符重合覆盖率 $\ge 40\%$，直接将这一行作为强证据提取为 `exactContributedLines`。
+* **映射锁定**: 拿着这些匹配位置去问预处理时留下的 `charToLineMap`，只要它发现原始代码的某一行被 AI 的字符重合覆盖率 $\ge 70\%$，直接将这一行作为强证据提取为 `exactContributedLines`。
 * **安全底线**: 这是物理上无可辩驳的证据！只要该变量 $>0$，系统就认为该代码块存在确凿的搬运行为，不会被任何门槛（废除了 fastFail 漏斗）掩盖，保底直接定性为 `FUZZY`。
 
 ### 第三层：AST 语义特征比对 (L3 - 结构特征层)
@@ -155,12 +159,14 @@
 
 | 匹配类型 | 触发层 | 含义 | 贡献行数计算 |
 |---|---|---|---|
-| **STRICT** | L1 | 代码整体原封不动全搬自 AI | 取 L2 `exactLines` (未计算则全长兜底) |
-| **FUZZY** | L2 | AI 献出物理片段，部分行被改 | 取 L2 的真实追溯行数 `exactLines` |
-| **DEEP_REFACTOR** | L3 | 深度重构：全文件找不到照搬，但骨架抄袭 | 取 MAX( `L2 真实行`, `总行数 × L3 结构分`) |
+| **STRICT** | L1 | 代码整体原封不动全搬自 AI | union 合并追溯行数（未追溯到则全长兜底） |
+| **FUZZY** | L2 | AI 献出物理片段，部分行被改 | union 合并追溯行数（跨消息去重） |
+| **DEEP_REFACTOR** | L3 | 深度重构：全文件找不到照搬，但骨架抄袭 | MAX( union 追溯行数, 总行数 × L3 结构分 ) |
 | **NONE** | 任意 | 纯手工编写且结构对不上代码 | `0` |
 
-$$\text{AI 贡献行数} = \sum (\text{Diff 新增代码块行数} \times \text{对应匹配得分系数})$$
+$$\text{AI 贡献行数} = \sum \text{Union}(\text{各贡献消息的 contributedLineIndices})$$
+
+> **多消息归因说明**：一个 chunk 可能同时关联多条 AI message。系统对所有 L2 score ≥ 10% 的消息做 Set Union 去重，确保同一行只计一次。关联的消息 ID 以逗号分隔存入 `matchedMessageIds` 字段。
 
 ---
 
