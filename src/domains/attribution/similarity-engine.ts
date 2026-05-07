@@ -42,6 +42,8 @@ export class SimilarityEngine {
       l2?: Partial<PipelineConfig['l2']>;
       l3?: Partial<PipelineConfig['l3']>;
       maxLinesForL3?: number;
+      perLineMatchThreshold?: number;
+      multiMessage?: Partial<PipelineConfig['multiMessage']>;
     };
     astEngineOptions?: { grammarsDir?: string; cacheSize?: number; cacheTtlMs?: number };
   }) {
@@ -62,6 +64,8 @@ export class SimilarityEngine {
       l2: { ...DEFAULT_PIPELINE_CONFIG.l2, ...options?.pipelineConfig?.l2 },
       l3: { ...DEFAULT_PIPELINE_CONFIG.l3, ...options?.pipelineConfig?.l3 },
       maxLinesForL3: options?.pipelineConfig?.maxLinesForL3 ?? DEFAULT_PIPELINE_CONFIG.maxLinesForL3,
+      perLineMatchThreshold: options?.pipelineConfig?.perLineMatchThreshold ?? DEFAULT_PIPELINE_CONFIG.perLineMatchThreshold,
+      multiMessage: { ...DEFAULT_PIPELINE_CONFIG.multiMessage, ...options?.pipelineConfig?.multiMessage },
     };
   }
 
@@ -109,11 +113,10 @@ export class SimilarityEngine {
     let exactContributedLines = 0;
     const contributedLineIndices = new Set<number>();
     // A line is counted as AI-contributed (1) or not (0).
-    // Threshold at 70% to filter out global LCS char leakage from other AI lines.
-    const PER_LINE_MATCH_THRESHOLD = 0.70;
+    // Threshold at perLineMatchThreshold to filter out global LCS char leakage from other AI lines.
     for (const [lineIndex, validTotalChars] of chunkMapping.lineCharCounts.entries()) {
       const matched = matchedCharsPerLine.get(lineIndex) ?? 0;
-      if (validTotalChars > 0 && (matched / validTotalChars) >= PER_LINE_MATCH_THRESHOLD) {
+      if (validTotalChars > 0 && (matched / validTotalChars) >= this.config.perLineMatchThreshold) {
         exactContributedLines++;
         contributedLineIndices.add(lineIndex);
       }

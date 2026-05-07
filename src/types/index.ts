@@ -204,14 +204,35 @@ export interface PipelineConfig {
   };
   /** Max added lines before L3 is skipped (default: 1000) */
   maxLinesForL3: number;
+  /** Per-line match threshold to count a line as AI contributed (default: 0.70) */
+  perLineMatchThreshold: number;
+  multiMessage: {
+    /** Minimum L2 score required for a message to be considered a multi-message contributor (default: 0.10) */
+    threshold: number;
+    /** Minimum exact contributed lines required for a message to be considered a multi-message contributor (default: 3) */
+    minLines: number;
+  };
 }
 
 /** Default pipeline configuration */
 export const DEFAULT_PIPELINE_CONFIG: PipelineConfig = {
-  l1: { fastPass: 0.90, fastFail: 0.15 },
-  l2: { fastPass: 0.80, fastFail: 0.30 },
-  l3: { pass: 0.60 },
-  maxLinesForL3: 1000,
+  l1: {
+    fastPass: process.env.PIPELINE_L1_FAST_PASS ? Number(process.env.PIPELINE_L1_FAST_PASS) : 0.90,
+    fastFail: process.env.PIPELINE_L1_FAST_FAIL ? Number(process.env.PIPELINE_L1_FAST_FAIL) : 0.15,
+  },
+  l2: {
+    fastPass: process.env.PIPELINE_L2_FAST_PASS ? Number(process.env.PIPELINE_L2_FAST_PASS) : 0.80,
+    fastFail: process.env.PIPELINE_L2_FAST_FAIL ? Number(process.env.PIPELINE_L2_FAST_FAIL) : 0.30,
+  },
+  l3: {
+    pass: process.env.PIPELINE_L3_PASS ? Number(process.env.PIPELINE_L3_PASS) : 0.60,
+  },
+  maxLinesForL3: process.env.PIPELINE_MAX_LINES_L3 ? Number(process.env.PIPELINE_MAX_LINES_L3) : 1000,
+  perLineMatchThreshold: process.env.PER_LINE_MATCH_THRESHOLD ? Number(process.env.PER_LINE_MATCH_THRESHOLD) : 0.70,
+  multiMessage: {
+    threshold: process.env.MULTI_MSG_THRESHOLD ? Number(process.env.MULTI_MSG_THRESHOLD) : 0.10,
+    minLines: process.env.MULTI_MSG_MIN_LINES ? Number(process.env.MULTI_MSG_MIN_LINES) : 3,
+  },
 };
 
 // ============================================================

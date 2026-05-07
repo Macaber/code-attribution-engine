@@ -4,3 +4,4 @@ coverage/
 .env
 *.logs
 .DS_Store
+java-migration/target/

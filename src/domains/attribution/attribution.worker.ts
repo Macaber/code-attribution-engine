@@ -4,6 +4,8 @@ import {
   DiffChunk,
   MatchResult,
   EvaluationResult,
+  PipelineConfig,
+  DEFAULT_PIPELINE_CONFIG,
 } from '../../types';
 import { DiffParser } from './diff-parser';
 import { SimilarityEngine } from './similarity-engine';
@@ -35,6 +37,7 @@ export class AttributionWorker {
   private readonly diffParser: DiffParser;
   private readonly similarityEngine: SimilarityEngine;
   private readonly normalizer: Normalizer;
+  private readonly config: PipelineConfig;
 
   constructor(options?: {
     weights?: { winnowing?: number; lcs?: number };
@@ -45,12 +48,22 @@ export class AttributionWorker {
       l2?: { fastPass?: number; fastFail?: number };
       l3?: { pass?: number };
       maxLinesForL3?: number;
+      perLineMatchThreshold?: number;
+      multiMessage?: { threshold?: number; minLines?: number };
     };
     astEngineOptions?: { grammarsDir?: string; cacheSize?: number; cacheTtlMs?: number };
   }) {
     this.diffParser = new DiffParser();
     this.similarityEngine = new SimilarityEngine(options);
     this.normalizer = new Normalizer();
+    this.config = {
+      l1: { ...DEFAULT_PIPELINE_CONFIG.l1, ...options?.pipelineConfig?.l1 },
+      l2: { ...DEFAULT_PIPELINE_CONFIG.l2, ...options?.pipelineConfig?.l2 },
+      l3: { ...DEFAULT_PIPELINE_CONFIG.l3, ...options?.pipelineConfig?.l3 },
+      maxLinesForL3: options?.pipelineConfig?.maxLinesForL3 ?? DEFAULT_PIPELINE_CONFIG.maxLinesForL3,
+      perLineMatchThreshold: options?.pipelineConfig?.perLineMatchThreshold ?? DEFAULT_PIPELINE_CONFIG.perLineMatchThreshold,
+      multiMessage: { ...DEFAULT_PIPELINE_CONFIG.multiMessage, ...options?.pipelineConfig?.multiMessage },
+    };
   }
 
   /**
@@ -129,7 +142,6 @@ export class AttributionWorker {
    *   4. Final exactContributedLines = union set size
    *   5. Best match = highest-scoring message (drives attribution classification)
    */
-  private readonly MULTI_MSG_THRESHOLD = 0.10; // 10% L2 score minimum
 
   private async processChunk(
     chunk: EnrichedChunk,
@@ -164,9 +176,13 @@ export class AttributionWorker {
         bestCandidate = { messageId: msg.messageId, result };
       }
 
-      // Collect all messages with >= 10% contribution (L2 score basis)
+      // Collect all messages with >= threshold contribution (L2 score basis) and > minLines exact contribution
       const l2Score = result.details.l2LcsScore ?? result.score;
-      if (l2Score >= this.MULTI_MSG_THRESHOLD && result.matchType !== 'NONE') {
+      if (
+        l2Score >= this.config.multiMessage.threshold &&
+        (result.exactContributedLines ?? 0) > this.config.multiMessage.minLines &&
+        result.matchType !== 'NONE'
+      ) {
         candidates.push({ messageId: msg.messageId, result });
       }
 
