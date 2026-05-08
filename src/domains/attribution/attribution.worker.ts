@@ -156,6 +156,9 @@ export class AttributionWorker {
     const candidates: CandidateMatch[] = [];
     let bestCandidate: CandidateMatch | null = null;
 
+    // PRE-CALCULATE chunk mapping once per chunk to avoid repeating it for each AI message
+    const chunkMapping = this.normalizer.normalizeWithMapping(chunk.content);
+
     for (const msg of messages) {
       if (!msg.normalizedContent) continue;
 
@@ -168,6 +171,8 @@ export class AttributionWorker {
           addedLineCount: chunk.fileAddedLineCount,
           chunkStartLine: chunk.startLine,
           chunkEndLine: chunk.endLine,
+          normalizedAi: msg.normalizedContent,
+          chunkMapping: chunkMapping,
         },
       );
 
@@ -179,7 +184,7 @@ export class AttributionWorker {
       // Collect all messages with >= threshold contribution (L2 score basis) and > minLines exact contribution
       const l2Score = result.details.l2LcsScore ?? result.score;
       if (
-        l2Score >= this.config.multiMessage.threshold &&
+        l2Score >= this.config.multiMessage.threshold ||
         (result.exactContributedLines ?? 0) > this.config.multiMessage.minLines &&
         result.matchType !== 'NONE'
       ) {
@@ -247,12 +252,12 @@ export class AttributionWorker {
 
     const bestMatch = bestCandidate
       ? {
-          messageId: bestCandidate.messageId,
-          score: bestCandidate.result.score,
-          matchType: bestCandidate.result.matchType,
-          level: bestCandidate.result.level,
-          details: bestCandidate.result.details,
-        }
+        messageId: bestCandidate.messageId,
+        score: bestCandidate.result.score,
+        matchType: bestCandidate.result.matchType,
+        level: bestCandidate.result.level,
+        details: bestCandidate.result.details,
+      }
       : null;
 
     return {
@@ -324,13 +329,7 @@ export class AttributionWorker {
 
     // ── Analyzed lines = non-blank lines only (matches exactContributedLines counting basis) ──
     const analyzedLines = results.reduce(
-      (sum, r) => {
-        const chunkContent = r.chunk.content;
-        const nonBlankCount = chunkContent
-          .split('\n')
-          .filter(line => line.trim().length > 0).length;
-        return sum + nonBlankCount;
-      },
+      (sum, r) => sum + r.chunk.nonBlankLineCount,
       0,
     );
     const aiContributedLines = results.reduce(
@@ -345,8 +344,8 @@ export class AttributionWorker {
 
     if (jobData?.fileDetails) {
       for (const file of jobData.fileDetails) {
-        const fileLineCount = file.code
-          ? file.code.split('\n').length
+        const fileLineCount = (file.code && file.code.length > 0)
+          ? (file.code.match(/\n/g)?.length ?? 0) + 1
           : 0;
         totalCodeLines += fileLineCount;
 

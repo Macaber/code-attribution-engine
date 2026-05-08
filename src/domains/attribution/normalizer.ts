@@ -45,7 +45,7 @@ export class Normalizer {
       return { normalizedText: '', charToLineMap: [], lineCharCounts: new Map() };
     }
 
-    let normalizedText = '';
+    const normalizedTextParts: string[] = [];
     const charToLineMap: number[] = [];
     const lineCharCounts = new Map<number, number>();
 
@@ -55,7 +55,7 @@ export class Normalizer {
       const stripped = lines[lineIndex].replace(/\s+/g, '').toLowerCase();
 
       if (stripped.length > 0) {
-        normalizedText += stripped;
+        normalizedTextParts.push(stripped);
         for (let i = 0; i < stripped.length; i++) {
           charToLineMap.push(lineIndex);
         }
@@ -63,6 +63,6 @@ export class Normalizer {
       }
     }
 
-    return { normalizedText, charToLineMap, lineCharCounts };
+    return { normalizedText: normalizedTextParts.join(''), charToLineMap, lineCharCounts };
   }
 }

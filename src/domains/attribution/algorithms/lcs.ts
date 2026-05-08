@@ -42,8 +42,8 @@ export class LCS {
     const n = strB.length;
 
     // Two-row DP: O(min(m,n)) space
-    let prev = new Uint32Array(n + 1);
-    let curr = new Uint32Array(n + 1);
+    let prev = new Uint16Array(n + 1);
+    let curr = new Uint16Array(n + 1);
 
     for (let i = 1; i <= m; i++) {
       for (let j = 1; j <= n; j++) {
@@ -55,7 +55,6 @@ export class LCS {
       }
       // Swap rows
       [prev, curr] = [curr, prev];
-      curr.fill(0);
     }
 
     return prev[n];
@@ -88,8 +87,9 @@ export class LCS {
     const n = tgtStr.length;
 
     // We keep a full DP table for backtracking.
-    // 1D array representing a 2D matrix of (M+1) rows and (N+1) cols
-    const dp = new Uint32Array((m + 1) * (n + 1));
+    // 1D array representing a 2D matrix of (M+1) rows and (N+1) cols.
+    // Uint16Array is safe because max value is min(m,n) <= sqrt(maxCells), which is ~3162 for 10M cells.
+    const dp = new Uint16Array((m + 1) * (n + 1));
 
     // Fill DP
     for (let i = 1; i <= m; i++) {

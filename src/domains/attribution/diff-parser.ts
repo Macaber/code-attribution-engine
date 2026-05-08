@@ -76,12 +76,14 @@ export class DiffParser {
     lines: string[],
   ): DiffChunk {
     const content = lines.join('\n');
+    const nonBlankLineCount = lines.filter(line => line.trim().length > 0).length;
     return {
       filePath,
       startLine,
       endLine,
       content,
       normalizedContent: this.normalizer.normalizeText(content),
+      nonBlankLineCount,
     };
   }
 }

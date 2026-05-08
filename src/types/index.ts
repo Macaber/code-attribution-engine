@@ -17,6 +17,8 @@ export interface DiffChunk {
   content: string;
   /** Content after normalization (comments/whitespace removed, lowercased) */
   normalizedContent: string;
+  /** Number of non-blank lines in this chunk */
+  nonBlankLineCount: number;
   /** Full merged file content (used for L3 AST parsing context) */
   fileContent?: string;
 }

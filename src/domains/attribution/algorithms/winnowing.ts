@@ -55,26 +55,74 @@ export class Winnowing {
     }
 
     const fingerprints = new Set<number>();
-    for (let i = 0; i <= hashes.length - w; i++) {
-      let minHash = hashes[i];
-      for (let j = i + 1; j < i + w; j++) {
-        if (hashes[j] < minHash) {
-          minHash = hashes[j];
-        }
+    
+    // Monotonic Deque (stores indices of hashes). 
+    // Int32Array used for O(1) performance and to avoid JS array shift() overhead.
+    const deque = new Int32Array(hashes.length);
+    let head = 0;
+    let tail = 0;
+
+    for (let i = 0; i < hashes.length; i++) {
+      // 1. Remove elements out of the current window
+      if (head < tail && deque[head] <= i - w) {
+        head++;
       }
-      fingerprints.add(minHash);
+
+      // 2. Maintain monotonic property: remove elements greater than or equal to current hash
+      while (head < tail && hashes[deque[tail - 1]] >= hashes[i]) {
+        tail--;
+      }
+
+      // 3. Add current element's index
+      deque[tail++] = i;
+
+      // 4. Record the minimum once we've processed at least one full window
+      if (i >= w - 1) {
+        fingerprints.add(hashes[deque[head]]);
+      }
     }
+    
     return fingerprints;
   }
 
   /**
-   * Get the full fingerprint set for a piece of text.
+   * Get the full fingerprint set for a piece of text using O(N) Rolling Hash.
+   * Bypasses generateKgrams to avoid string allocation overhead.
    */
   getFingerprints(text: string): Set<number> {
-    const kgrams = this.generateKgrams(text, this.k);
-    if (kgrams.length === 0) return new Set();
+    const k = this.k;
+    if (text.length < k) return new Set();
 
-    const hashes = kgrams.map(kg => this.hashKgram(kg));
+    const BASE = 31;
+    const MOD = 1_000_000_007;
+    const hashes: number[] = [];
+
+    // Precompute BASE^(k-1) % MOD
+    let basePow = 1;
+    for (let i = 0; i < k - 1; i++) {
+      basePow = (basePow * BASE) % MOD;
+    }
+
+    let currentHash = 0;
+    // Compute hash for the first k-gram window
+    for (let i = 0; i < k; i++) {
+      currentHash = (currentHash * BASE + text.charCodeAt(i)) % MOD;
+    }
+    hashes.push(currentHash);
+
+    // Slide window for O(1) hash updates
+    for (let i = 1; i <= text.length - k; i++) {
+      const leftChar = text.charCodeAt(i - 1);
+      const rightChar = text.charCodeAt(i + k - 1);
+
+      // Remove the outgoing character and add the incoming character
+      const removeTerm = (leftChar * basePow) % MOD;
+      currentHash = (currentHash - removeTerm + MOD) % MOD; // +MOD prevents negative values in JS
+      currentHash = (currentHash * BASE + rightChar) % MOD;
+      
+      hashes.push(currentHash);
+    }
+
     return this.selectFingerprints(hashes, this.w);
   }
 

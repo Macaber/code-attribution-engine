@@ -5,7 +5,7 @@ import {
   PipelineConfig,
   DEFAULT_PIPELINE_CONFIG,
 } from '../../types';
-import { Normalizer } from './normalizer';
+import { Normalizer, LineMapping } from './normalizer';
 import { Winnowing } from './algorithms/winnowing';
 import { LCS } from './algorithms/lcs';
 import { AstFeatureEngine } from './algorithms/ast-engine';
@@ -89,10 +89,12 @@ export class SimilarityEngine {
       addedLineCount?: number;   // Number of added lines (for L3 circuit breaker)
       chunkStartLine?: number;   // Diff chunk start line in file (1-indexed)
       chunkEndLine?: number;     // Diff chunk end line in file (1-indexed)
+      normalizedAi?: string;     // Pre-calculated normalized AI text
+      chunkMapping?: LineMapping;// Pre-calculated chunk mapping
     },
   ): Promise<EvaluationResult> {
-    const normalizedAi = this.normalizer.normalizeText(aiCode);
-    const chunkMapping = this.normalizer.normalizeWithMapping(diffChunkContent);
+    const normalizedAi = options?.normalizedAi ?? this.normalizer.normalizeText(aiCode);
+    const chunkMapping = options?.chunkMapping ?? this.normalizer.normalizeWithMapping(diffChunkContent);
     const normalizedChunk = chunkMapping.normalizedText;
 
     if (!normalizedAi || !normalizedChunk) {
