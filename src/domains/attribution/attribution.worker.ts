@@ -218,8 +218,9 @@ export class AttributionWorker {
 
     switch (attribution) {
       case 'strict':
-        // For strict match, use union lines if available, otherwise total
-        contributedLines = unionContributedLines > 0 ? unionContributedLines : totalLines;
+        // For strict match (L1 Winnowing fast-pass), we consider the entire chunk's valid lines as AI generated.
+        // It bypassed L2 LCS line tracing, so unionContributedLines might undercount due to thresholding.
+        contributedLines = chunk.nonBlankLineCount > 0 ? chunk.nonBlankLineCount : totalLines;
         break;
       case 'fuzzy':
         // Fuzzy relies purely on exact traced lines (now union-merged)
@@ -312,6 +313,7 @@ export class AttributionWorker {
       startLine: number;
       endLine: number;
       totalLines: number;
+      analyzedLines: number;
       attribution: string;
       contributedLines: number;
       matchedMessageId: string | null;
@@ -389,6 +391,7 @@ export class AttributionWorker {
       startLine: r.chunk.startLine,
       endLine: r.chunk.endLine,
       totalLines: r.chunk.endLine - r.chunk.startLine + 1,
+      analyzedLines: r.chunk.nonBlankLineCount,
       attribution: r.attribution,
       contributedLines: r.contributedLines,
       matchedMessageId: r.bestMatch?.messageId ?? null,

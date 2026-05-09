@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS attribution_chunk_details (
   start_line          INT NOT NULL COMMENT 'Diff 起始行',
   end_line            INT NOT NULL COMMENT 'Diff 结束行',
   total_lines         INT NOT NULL COMMENT '本 chunk 总行数',
+  analyzed_lines      INT NOT NULL DEFAULT 0 COMMENT '本 chunk 去空行后的有效行数',
   attribution         VARCHAR(32) NOT NULL COMMENT '归因类型: strict/fuzzy/deep_refactor/none',
   contributed_lines   DECIMAL(10,2) NOT NULL DEFAULT 0 COMMENT 'AI 贡献行数',
   matched_message_id  VARCHAR(128) COMMENT '匹配到的 AI 消息 ID (溯源)',

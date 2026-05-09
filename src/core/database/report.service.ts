@@ -35,6 +35,7 @@ export class ReportService {
         startLine: number;
         endLine: number;
         totalLines: number;
+        analyzedLines: number;
         attribution: string;
         contributedLines: number;
         matchedMessageId: string | null;
@@ -116,13 +117,14 @@ export class ReportService {
         const values: any[] = [];
 
         for (const chunk of summary.chunkDetails) {
-          placeholders.push('(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+          placeholders.push('(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
           values.push(
             reportId,
             chunk.filePath,
             chunk.startLine,
             chunk.endLine,
             chunk.totalLines,
+            chunk.analyzedLines,
             chunk.attribution,
             chunk.contributedLines,
             chunk.matchedMessageId,
@@ -135,7 +137,7 @@ export class ReportService {
 
         await conn.execute(
           `INSERT INTO attribution_chunk_details
-            (report_id, file_path, start_line, end_line, total_lines,
+            (report_id, file_path, start_line, end_line, total_lines, analyzed_lines,
              attribution, contributed_lines, matched_message_id, matched_message_ids,
              score, match_type, level)
            VALUES ${placeholders.join(', ')}`,
@@ -396,10 +398,10 @@ export class ReportService {
 
     const report = this.mapReportRow(reportRows[0]);
 
-    // Fetch chunk details
+        // Fetch chunk details
     const [chunkRows] = await this.pool.execute<any[]>(
       `SELECT
-         id, file_path, start_line, end_line, total_lines,
+         id, file_path, start_line, end_line, total_lines, analyzed_lines,
          attribution, contributed_lines, matched_message_id, matched_message_ids,
          score, match_type, level
        FROM attribution_chunk_details
@@ -414,6 +416,7 @@ export class ReportService {
       startLine: row.start_line,
       endLine: row.end_line,
       totalLines: row.total_lines,
+      analyzedLines: row.analyzed_lines,
       attribution: row.attribution,
       contributedLines: Number(row.contributed_lines),
       matchedMessageId: row.matched_message_id,
