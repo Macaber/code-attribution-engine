@@ -74,15 +74,52 @@ export class LCS {
     let refStr = reference;
     let tgtStr = target;
 
-    // Circuit breaker: truncate if N*M exceeds threshold
-    if (refStr.length * tgtStr.length > this.maxCells) {
-      const ratio = Math.sqrt(this.maxCells / (refStr.length * tgtStr.length));
-      const newLenRef = Math.max(1, Math.floor(refStr.length * ratio));
-      const newLenTgt = Math.max(1, Math.floor(tgtStr.length * ratio));
-      refStr = refStr.substring(0, newLenRef);
-      tgtStr = tgtStr.substring(0, newLenTgt);
+    // If input is small enough, use precise global LCS
+    if (refStr.length * tgtStr.length <= this.maxCells) {
+      return this._calculateTraceableLcsInternal(refStr, tgtStr);
     }
 
+    // ═════════════════════════════════════════════════════
+    // Circuit breaker: Chunked sliding-window LCS approximation
+    // To prevent truncating the end of large files (which drops 
+    // exact matched lines), we split the target into safe chunks
+    // and match each against a sliding localized window of reference.
+    // ═════════════════════════════════════════════════════
+    
+    // We want chunk_M * chunk_N <= maxCells.
+    // Let's use a fixed target chunk size (e.g., 2000 chars)
+    // and a reference window size (e.g., 4000 chars) to allow +/- 1000 shift.
+    const tgtChunkSize = Math.floor(Math.sqrt(this.maxCells / 2)); // ~2236 for 10M cells
+    const refWindowSize = tgtChunkSize * 2; // ~4472
+
+    const matchedTargetIndices: number[] = [];
+
+    for (let tgtOffset = 0; tgtOffset < tgtStr.length; tgtOffset += tgtChunkSize) {
+      const tgtChunk = tgtStr.substring(tgtOffset, tgtOffset + tgtChunkSize);
+
+      // Estimate where in reference string this chunk should align
+      const expectedCenter = Math.floor((tgtOffset + tgtChunk.length / 2) / tgtStr.length * refStr.length);
+      const refWindowStart = Math.max(0, expectedCenter - refWindowSize / 2);
+      const refWindowEnd = Math.min(refStr.length, expectedCenter + refWindowSize / 2);
+      const refChunk = refStr.substring(refWindowStart, refWindowEnd);
+
+      // Calculate localized LCS
+      const localMatches = this._calculateTraceableLcsInternal(refChunk, tgtChunk);
+
+      // Map local target indices back to global target indices
+      for (const localIdx of localMatches) {
+        matchedTargetIndices.push(tgtOffset + localIdx);
+      }
+    }
+
+    return matchedTargetIndices;
+  }
+
+  /**
+   * Core implementation of traceable LCS.
+   * Runs in O(M*N) time and space. Assumes inputs are already bounds-checked.
+   */
+  private _calculateTraceableLcsInternal(refStr: string, tgtStr: string): number[] {
     const m = refStr.length;
     const n = tgtStr.length;
 
