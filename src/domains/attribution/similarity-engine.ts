@@ -5,7 +5,7 @@ import {
   PipelineConfig,
   DEFAULT_PIPELINE_CONFIG,
 } from '../../types';
-import { Normalizer, LineMapping } from './normalizer';
+import { Normalizer, TokenMapping } from './normalizer';
 import { Winnowing } from './algorithms/winnowing';
 import { LCS } from './algorithms/lcs';
 import { AstFeatureEngine } from './algorithms/ast-engine';
@@ -90,11 +90,12 @@ export class SimilarityEngine {
       chunkStartLine?: number;   // Diff chunk start line in file (1-indexed)
       chunkEndLine?: number;     // Diff chunk end line in file (1-indexed)
       normalizedAi?: string;     // Pre-calculated normalized AI text
-      chunkMapping?: LineMapping;// Pre-calculated chunk mapping
+      chunkMapping?: TokenMapping;// Pre-calculated chunk mapping
     },
   ): Promise<EvaluationResult> {
-    const normalizedAi = options?.normalizedAi ?? this.normalizer.normalizeText(aiCode);
-    const chunkMapping = options?.chunkMapping ?? this.normalizer.normalizeWithMapping(diffChunkContent);
+    const aiTokenMapping = this.normalizer.normalizeToTokens(aiCode);
+    const normalizedAi = options?.normalizedAi ?? aiTokenMapping.normalizedText;
+    const chunkMapping = options?.chunkMapping ?? this.normalizer.normalizeToTokens(diffChunkContent);
     const normalizedChunk = chunkMapping.normalizedText;
 
     if (!normalizedAi || !normalizedChunk) {
@@ -103,22 +104,22 @@ export class SimilarityEngine {
 
     // ── Pre-calculate Exact Traceable Line Contributions via LCS ──
     // This allows us to track exactly which lines match, ignoring total length scores.
-    const matchedIndices = this.lcs.calculateTraceableLcs(normalizedAi, normalizedChunk);
+    const matchedTokenIndices = this.lcs.calculateTraceableLcsTokens(aiTokenMapping.tokens, chunkMapping.tokens);
 
-    // Group matched chars by line
-    const matchedCharsPerLine = new Map<number, number>();
-    for (const charIndex of matchedIndices) {
-      const lineIndex = chunkMapping.charToLineMap[charIndex];
-      matchedCharsPerLine.set(lineIndex, (matchedCharsPerLine.get(lineIndex) ?? 0) + 1);
+    // Group matched tokens by line
+    const matchedTokensPerLine = new Map<number, number>();
+    for (const tokenIndex of matchedTokenIndices) {
+      const lineIndex = chunkMapping.tokenToLineMap[tokenIndex];
+      matchedTokensPerLine.set(lineIndex, (matchedTokensPerLine.get(lineIndex) ?? 0) + 1);
     }
 
     let exactContributedLines = 0;
     const contributedLineIndices = new Set<number>();
     // A line is counted as AI-contributed (1) or not (0).
-    // Threshold at perLineMatchThreshold to filter out global LCS char leakage from other AI lines.
-    for (const [lineIndex, validTotalChars] of chunkMapping.lineCharCounts.entries()) {
-      const matched = matchedCharsPerLine.get(lineIndex) ?? 0;
-      if (validTotalChars > 0 && (matched / validTotalChars) >= this.config.perLineMatchThreshold) {
+    // Threshold at perLineMatchThreshold to filter out global LCS token leakage from other AI lines.
+    for (const [lineIndex, validTotalTokens] of chunkMapping.lineTokenCounts.entries()) {
+      const matched = matchedTokensPerLine.get(lineIndex) ?? 0;
+      if (validTotalTokens > 0 && (matched / validTotalTokens) >= this.config.perLineMatchThreshold) {
         exactContributedLines++;
         contributedLineIndices.add(lineIndex);
       }
@@ -180,9 +181,10 @@ export class SimilarityEngine {
     // 而非 max(|AI|,|Diff|) 避免用户部分采纳时被大 AI 代码拉低
     // ═════════════════════════════════════════════════════
     // ═════════════════════════════════════════════════════
-    const lcsLength = matchedIndices.length; // From pre-calculated precise LCS
-    const l2Score = normalizedChunk.length > 0
-      ? lcsLength / normalizedChunk.length
+    // ═════════════════════════════════════════════════════
+    const lcsTokenLength = matchedTokenIndices.length; // From pre-calculated precise LCS tokens
+    const l2Score = chunkMapping.tokens.length > 0
+      ? lcsTokenLength / chunkMapping.tokens.length
       : 0;
 
     if (l2Score >= this.config.l2.fastPass) {

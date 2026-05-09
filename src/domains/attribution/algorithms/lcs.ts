@@ -116,6 +116,81 @@ export class LCS {
   }
 
   /**
+   * Calculates the LCS for token arrays and returns the exact indices of `targetTokens`
+   * that match `referenceTokens`.
+   * Since token arrays are much smaller than character strings, this avoids OOM.
+   *
+   * @param refTokens The base token array
+   * @param tgtTokens The token array whose matched indices are desired
+   * @returns Array of token indices in `tgtTokens` that matched.
+   */
+  calculateTraceableLcsTokens(refTokens: string[], tgtTokens: string[]): number[] {
+    if (refTokens.length === 0 || tgtTokens.length === 0) return [];
+
+    const m = refTokens.length;
+    const n = tgtTokens.length;
+
+    // Safety circuit breaker (just in case the token count is still astronomically huge)
+    // If it exceeds maxCells, we will truncate the arrays proportionally
+    let safeRefTokens = refTokens;
+    let safeTgtTokens = tgtTokens;
+
+    if (m * n > this.maxCells) {
+      const ratio = Math.sqrt(this.maxCells / (m * n));
+      const newLenM = Math.max(1, Math.floor(m * ratio));
+      const newLenN = Math.max(1, Math.floor(n * ratio));
+      safeRefTokens = safeRefTokens.slice(0, newLenM);
+      safeTgtTokens = safeTgtTokens.slice(0, newLenN);
+    }
+
+    const sm = safeRefTokens.length;
+    const sn = safeTgtTokens.length;
+
+    const dp = new Uint16Array((sm + 1) * (sn + 1));
+
+    // Fill DP
+    for (let i = 1; i <= sm; i++) {
+      const rowOffset = i * (sn + 1);
+      const prevRowOffset = (i - 1) * (sn + 1);
+
+      for (let j = 1; j <= sn; j++) {
+        if (safeRefTokens[i - 1] === safeTgtTokens[j - 1]) {
+          dp[rowOffset + j] = dp[prevRowOffset + j - 1] + 1;
+        } else {
+          dp[rowOffset + j] = Math.max(
+            dp[prevRowOffset + j], // up
+            dp[rowOffset + j - 1], // left
+          );
+        }
+      }
+    }
+
+    // Backtrack from bottom-right to find aligned target indices
+    let i = sm;
+    let j = sn;
+    const matchedTargetIndices: number[] = [];
+
+    while (i > 0 && j > 0) {
+      if (safeRefTokens[i - 1] === safeTgtTokens[j - 1]) {
+        matchedTargetIndices.push(j - 1);
+        i--;
+        j--;
+      } else {
+        const rowOffset = i * (sn + 1);
+        const prevRowOffset = (i - 1) * (sn + 1);
+
+        if (dp[prevRowOffset + j] > dp[rowOffset + j - 1]) {
+          i--;
+        } else {
+          j--;
+        }
+      }
+    }
+
+    return matchedTargetIndices.reverse();
+  }
+
+  /**
    * Core implementation of traceable LCS.
    * Runs in O(M*N) time and space. Assumes inputs are already bounds-checked.
    */

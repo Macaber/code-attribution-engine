@@ -157,7 +157,7 @@ export class AttributionWorker {
     let bestCandidate: CandidateMatch | null = null;
 
     // PRE-CALCULATE chunk mapping once per chunk to avoid repeating it for each AI message
-    const chunkMapping = this.normalizer.normalizeWithMapping(chunk.content);
+    const chunkMapping = this.normalizer.normalizeToTokens(chunk.content);
 
     for (const msg of messages) {
       if (!msg.normalizedContent) continue;

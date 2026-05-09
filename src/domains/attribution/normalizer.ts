@@ -1,7 +1,8 @@
-export interface LineMapping {
-  normalizedText: string;
-  charToLineMap: number[]; // index = char index, value = 0-indexed line number
-  lineCharCounts: Map<number, number>; // key = 0-indexed line number, value = number of valid characters
+export interface TokenMapping {
+  normalizedText: string; // Keep this for winnowing backward compatibility
+  tokens: string[];
+  tokenToLineMap: number[]; // index = token index, value = 0-indexed line number
+  lineTokenCounts: Map<number, number>; // key = 0-indexed line number, value = number of valid tokens
 }
 
 /**
@@ -39,30 +40,57 @@ export class Normalizer {
   /**
    * Normalizes code and builds a mapping from each character in the
    * normalized string back to its original line number (0-indexed).
+   * @deprecated Use normalizeToTokens instead for Token-based LCS.
    */
-  normalizeWithMapping(rawCode: string): LineMapping {
+  normalizeWithMapping(rawCode: string): any {
+    // Legacy support can be maintained if needed, but we recommend replacing its usage.
+    throw new Error('Use normalizeToTokens instead');
+  }
+
+  /**
+   * Normalizes code into an array of tokens (words and symbols), 
+   * and maps each token back to its original line number.
+   * Also generates normalizedText for Winnowing compatibility.
+   */
+  normalizeToTokens(rawCode: string): TokenMapping {
     if (!rawCode) {
-      return { normalizedText: '', charToLineMap: [], lineCharCounts: new Map() };
+      return { normalizedText: '', tokens: [], tokenToLineMap: [], lineTokenCounts: new Map() };
     }
 
+    const tokens: string[] = [];
+    const tokenToLineMap: number[] = [];
+    const lineTokenCounts = new Map<number, number>();
     const normalizedTextParts: string[] = [];
-    const charToLineMap: number[] = [];
-    const lineCharCounts = new Map<number, number>();
 
     const lines = rawCode.split('\n');
     for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-      // Step 3 & 4 equivalent for a single line
-      const stripped = lines[lineIndex].replace(/\s+/g, '').toLowerCase();
-
-      if (stripped.length > 0) {
-        normalizedTextParts.push(stripped);
-        for (let i = 0; i < stripped.length; i++) {
-          charToLineMap.push(lineIndex);
-        }
-        lineCharCounts.set(lineIndex, stripped.length);
+      // Split by non-word characters, capturing the separators
+      const parts = lines[lineIndex].split(/(\W)/);
+      
+      let tokensInLine = 0;
+      for (const part of parts) {
+        if (!part) continue;
+        
+        // Skip pure whitespace
+        if (/^\s+$/.test(part)) continue;
+        
+        const token = part.toLowerCase();
+        tokens.push(token);
+        tokenToLineMap.push(lineIndex);
+        normalizedTextParts.push(token); // Rebuild flattened text for winnowing
+        tokensInLine++;
+      }
+      
+      if (tokensInLine > 0) {
+        lineTokenCounts.set(lineIndex, tokensInLine);
       }
     }
 
-    return { normalizedText: normalizedTextParts.join(''), charToLineMap, lineCharCounts };
+    return { 
+      normalizedText: normalizedTextParts.join(''), 
+      tokens, 
+      tokenToLineMap, 
+      lineTokenCounts 
+    };
   }
 }
