@@ -203,6 +203,88 @@ function validatePassword(pw: string): boolean {
     });
   });
 
+  // ═══════════════════════════════════════════════
+  // Line-level LCS integration
+  // ═══════════════════════════════════════════════
+  describe('evaluateChunk (line-level LCS)', () => {
+    const engine = new SimilarityEngine();
+
+    it('should track exact contributed lines for identical multi-line code', async () => {
+      const code = `function add(a, b) {
+  return a + b;
+}`;
+      const result = await engine.evaluateChunk(code, code);
+      // All 3 non-blank lines should be contributed
+      expect(result.exactContributedLines).toBe(3);
+      expect(result.contributedLineIndices?.size).toBe(3);
+    });
+
+    it('should NOT count a line as contributed if variable name was changed', async () => {
+      const aiCode = `const myVar = 1;
+return myVar;`;
+      const userCode = `const yourVar = 1;
+return yourVar;`;
+      // After normalize: "constmyvar=1;" vs "constyourvar=1;" — different, so no line match
+      const result = await engine.evaluateChunk(aiCode, userCode);
+      expect(result.exactContributedLines).toBe(0);
+    });
+
+    it('should count lines with only whitespace/indentation differences as contributed', async () => {
+      const aiCode = `function test() {
+    return 42;
+}`;
+      const userCode = `function test() {
+  return 42;
+}`;
+      // After normalize: lines are identical (whitespace stripped)
+      const result = await engine.evaluateChunk(aiCode, userCode);
+      expect(result.exactContributedLines).toBe(3);
+    });
+
+    it('should return contributedLineIndices mapped to original 0-indexed line numbers', async () => {
+      const aiCode = `const x = 1;
+const y = 2;
+return x + y;`;
+      // User kept line 0 and line 2, changed line 1
+      const userCode = `const x = 1;
+const z = 99;
+return x + y;`;
+      const result = await engine.evaluateChunk(aiCode, userCode);
+      expect(result.exactContributedLines).toBe(2);
+      // Lines 0 and 2 should be contributed (0-indexed)
+      expect(result.contributedLineIndices).toContain(0);
+      expect(result.contributedLineIndices).toContain(2);
+      expect(result.contributedLineIndices).not.toContain(1);
+    });
+
+    it('should compute L2 score as line ratio (matched/total non-blank)', async () => {
+      // Use realistic code long enough for Winnowing to produce fingerprints
+      // but different enough to NOT fast-pass or fast-fail at L1
+      const aiCode = `function calculateTotal(items) {
+  let sum = 0;
+  for (const item of items) {
+    sum += item.price * item.quantity;
+  }
+  return sum;
+}`;
+      // User kept most lines but changed the variable and added a line
+      const userCode = `function calculateTotal(items) {
+  let total = 0;
+  for (const item of items) {
+    total += item.price * item.quantity;
+  }
+  return total;
+}`;
+      const result = await engine.evaluateChunk(aiCode, userCode);
+      // Lines that match after normalize: line 0 (function...), line 2 (for...), line 4 (}), line 6 (})
+      // Lines that differ: line 1 (sum vs total), line 3 (sum vs total), line 5 (return sum vs total)
+      // L2 score = matched / total non-blank
+      expect(result.details.l2LcsScore).toBeDefined();
+      expect(result.details.l2LcsScore).toBeGreaterThan(0);
+      expect(result.details.l2LcsScore).toBeLessThan(1);
+    });
+  });
+
   describe('matchTypeToAttribution', () => {
     it('should map STRICT to strict', () => {
       expect(SimilarityEngine.matchTypeToAttribution('STRICT')).toBe('strict');

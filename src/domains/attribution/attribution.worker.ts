@@ -156,8 +156,8 @@ export class AttributionWorker {
     const candidates: CandidateMatch[] = [];
     let bestCandidate: CandidateMatch | null = null;
 
-    // PRE-CALCULATE chunk mapping once per chunk to avoid repeating it for each AI message
-    const chunkMapping = this.normalizer.normalizeToTokens(chunk.content);
+    // PRE-CALCULATE chunk line mapping once per chunk to avoid repeating it for each AI message
+    const chunkLineMapping = this.normalizer.normalizeToLines(chunk.content);
 
     for (const msg of messages) {
       if (!msg.normalizedContent) continue;
@@ -172,7 +172,7 @@ export class AttributionWorker {
           chunkStartLine: chunk.startLine,
           chunkEndLine: chunk.endLine,
           normalizedAi: msg.normalizedContent,
-          chunkMapping: chunkMapping,
+          chunkLineMapping: chunkLineMapping,
         },
       );
 

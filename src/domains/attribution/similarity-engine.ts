@@ -5,7 +5,7 @@ import {
   PipelineConfig,
   DEFAULT_PIPELINE_CONFIG,
 } from '../../types';
-import { Normalizer, TokenMapping } from './normalizer';
+import { Normalizer, TokenMapping, LineMapping } from './normalizer';
 import { Winnowing } from './algorithms/winnowing';
 import { LCS } from './algorithms/lcs';
 import { AstFeatureEngine } from './algorithms/ast-engine';
@@ -90,39 +90,30 @@ export class SimilarityEngine {
       chunkStartLine?: number;   // Diff chunk start line in file (1-indexed)
       chunkEndLine?: number;     // Diff chunk end line in file (1-indexed)
       normalizedAi?: string;     // Pre-calculated normalized AI text
-      chunkMapping?: TokenMapping;// Pre-calculated chunk mapping
+      chunkMapping?: TokenMapping;// Pre-calculated chunk mapping (legacy, unused)
+      chunkLineMapping?: LineMapping; // Pre-calculated line mapping for line-level LCS
     },
   ): Promise<EvaluationResult> {
-    const aiTokenMapping = this.normalizer.normalizeToTokens(aiCode);
-    const normalizedAi = options?.normalizedAi ?? aiTokenMapping.normalizedText;
-    const chunkMapping = options?.chunkMapping ?? this.normalizer.normalizeToTokens(diffChunkContent);
-    const normalizedChunk = chunkMapping.normalizedText;
+    const aiLineMapping = this.normalizer.normalizeToLines(aiCode);
+    const normalizedAi = options?.normalizedAi ?? aiLineMapping.normalizedText;
+    const chunkLineMapping = options?.chunkLineMapping ?? this.normalizer.normalizeToLines(diffChunkContent);
+    const normalizedChunk = chunkLineMapping.normalizedText;
 
     if (!normalizedAi || !normalizedChunk) {
       return { score: 0, matchType: 'NONE', level: 'FAILED_ALL', details: {}, exactContributedLines: 0, contributedLineIndices: new Set() };
     }
 
-    // ── Pre-calculate Exact Traceable Line Contributions via LCS ──
-    // This allows us to track exactly which lines match, ignoring total length scores.
-    const matchedTokenIndices = this.lcs.calculateTraceableLcsTokens(aiTokenMapping.tokens, chunkMapping.tokens);
+    // ── Line-level LCS: each normalized line is an atomic comparison unit ──
+    // This eliminates cross-line token leakage and the need for per-line thresholds.
+    const matchedNormalizedIndices = this.lcs.calculateTraceableLcsLines(
+      aiLineMapping.normalizedLines, chunkLineMapping.normalizedLines,
+    );
 
-    // Group matched tokens by line
-    const matchedTokensPerLine = new Map<number, number>();
-    for (const tokenIndex of matchedTokenIndices) {
-      const lineIndex = chunkMapping.tokenToLineMap[tokenIndex];
-      matchedTokensPerLine.set(lineIndex, (matchedTokensPerLine.get(lineIndex) ?? 0) + 1);
-    }
-
-    let exactContributedLines = 0;
+    // Map matched normalizedLines indices back to original 0-indexed line numbers
+    const exactContributedLines = matchedNormalizedIndices.length;
     const contributedLineIndices = new Set<number>();
-    // A line is counted as AI-contributed (1) or not (0).
-    // Threshold at perLineMatchThreshold to filter out global LCS token leakage from other AI lines.
-    for (const [lineIndex, validTotalTokens] of chunkMapping.lineTokenCounts.entries()) {
-      const matched = matchedTokensPerLine.get(lineIndex) ?? 0;
-      if (validTotalTokens > 0 && (matched / validTotalTokens) >= this.config.perLineMatchThreshold) {
-        exactContributedLines++;
-        contributedLineIndices.add(lineIndex);
-      }
+    for (const idx of matchedNormalizedIndices) {
+      contributedLineIndices.add(chunkLineMapping.originalLineIndices[idx]);
     }
 
     // ═════════════════════════════════════════════════════
@@ -182,9 +173,9 @@ export class SimilarityEngine {
     // ═════════════════════════════════════════════════════
     // ═════════════════════════════════════════════════════
     // ═════════════════════════════════════════════════════
-    const lcsTokenLength = matchedTokenIndices.length; // From pre-calculated precise LCS tokens
-    const l2Score = chunkMapping.tokens.length > 0
-      ? lcsTokenLength / chunkMapping.tokens.length
+    // L2 Score: matched lines / total non-blank lines in the chunk
+    const l2Score = chunkLineMapping.nonBlankLineCount > 0
+      ? matchedNormalizedIndices.length / chunkLineMapping.nonBlankLineCount
       : 0;
 
     if (l2Score >= this.config.l2.fastPass) {

@@ -99,4 +99,70 @@ describe('LCS', () => {
       expect(score).toBeLessThanOrEqual(1);
     });
   });
+
+  describe('calculateTraceableLcsLines', () => {
+    const lcs = new LCS();
+
+    it('should return all indices for identical line arrays', () => {
+      const lines = ['constx=1;', 'consty=2;', 'returnx+y;'];
+      const result = lcs.calculateTraceableLcsLines(lines, lines);
+      expect(result).toEqual([0, 1, 2]);
+    });
+
+    it('should return matched indices for partially matching lines', () => {
+      const refLines = ['constx=1;', 'consty=2;', 'returnx+y;'];
+      const tgtLines = ['constx=1;', 'constz=3;', 'returnx+y;'];
+      // Line 0 and 2 match; line 1 is different
+      const result = lcs.calculateTraceableLcsLines(refLines, tgtLines);
+      expect(result).toEqual([0, 2]);
+    });
+
+    it('should handle target with extra inserted lines (user added code)', () => {
+      const refLines = ['constx=1;', 'returnx;'];
+      const tgtLines = ['constx=1;', 'console.log(x);', 'returnx;'];
+      // LCS should match line 0 and line 2 of target
+      const result = lcs.calculateTraceableLcsLines(refLines, tgtLines);
+      expect(result).toEqual([0, 2]);
+    });
+
+    it('should return empty array when no lines match', () => {
+      const refLines = ['aaa', 'bbb'];
+      const tgtLines = ['xxx', 'yyy'];
+      const result = lcs.calculateTraceableLcsLines(refLines, tgtLines);
+      expect(result).toEqual([]);
+    });
+
+    it('should return empty array for empty inputs', () => {
+      expect(lcs.calculateTraceableLcsLines([], ['a'])).toEqual([]);
+      expect(lcs.calculateTraceableLcsLines(['a'], [])).toEqual([]);
+      expect(lcs.calculateTraceableLcsLines([], [])).toEqual([]);
+    });
+
+    it('should handle single matching line', () => {
+      const result = lcs.calculateTraceableLcsLines(['hello'], ['hello']);
+      expect(result).toEqual([0]);
+    });
+
+    it('should handle single non-matching line', () => {
+      const result = lcs.calculateTraceableLcsLines(['hello'], ['world']);
+      expect(result).toEqual([]);
+    });
+
+    it('should preserve order and find correct LCS for reordered lines', () => {
+      // Reference: A B C D
+      // Target: C A B D → LCS should be A B D (indices 1,2,3) or C D (indices 0,3)
+      // Actual LCS length = 3 (A B D)
+      const refLines = ['a', 'b', 'c', 'd'];
+      const tgtLines = ['c', 'a', 'b', 'd'];
+      const result = lcs.calculateTraceableLcsLines(refLines, tgtLines);
+      expect(result.length).toBe(3); // LCS length is 3
+    });
+
+    it('should handle duplicate lines correctly', () => {
+      const refLines = ['return;', 'return;'];
+      const tgtLines = ['constx=1;', 'return;', 'consty=2;', 'return;'];
+      const result = lcs.calculateTraceableLcsLines(refLines, tgtLines);
+      expect(result).toEqual([1, 3]);
+    });
+  });
 });

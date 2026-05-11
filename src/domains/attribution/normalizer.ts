@@ -6,6 +6,22 @@ export interface TokenMapping {
 }
 
 /**
+ * Line-level normalization result for line-granularity LCS.
+ * Each non-blank line is normalized (whitespace-stripped, lowercased) and
+ * treated as an atomic unit for LCS comparison.
+ */
+export interface LineMapping {
+  /** Each non-blank line's normalized text (used as atomic LCS comparison unit) */
+  normalizedLines: string[];
+  /** Maps normalizedLines index → original 0-indexed line number */
+  originalLineIndices: number[];
+  /** Number of non-blank lines */
+  nonBlankLineCount: number;
+  /** Flattened normalized text for Winnowing backward compatibility */
+  normalizedText: string;
+}
+
+/**
  * Normalizer — Regex-based code cleaning for similarity comparison.
  *
  * Removes formatting noise (comments, whitespace, casing) so that
@@ -51,6 +67,7 @@ export class Normalizer {
    * Normalizes code into an array of tokens (words and symbols), 
    * and maps each token back to its original line number.
    * Also generates normalizedText for Winnowing compatibility.
+   * @deprecated Use normalizeToLines() for line-level LCS. Kept for backward compatibility.
    */
   normalizeToTokens(rawCode: string): TokenMapping {
     if (!rawCode) {
@@ -91,6 +108,45 @@ export class Normalizer {
       tokens, 
       tokenToLineMap, 
       lineTokenCounts 
+    };
+  }
+
+  /**
+   * Normalizes code at line granularity for line-level LCS comparison.
+   *
+   * Each line is independently normalized (all whitespace stripped, lowercased).
+   * Blank lines (empty after normalization) are excluded.
+   * The result maps each normalized line back to its original 0-indexed line number.
+   *
+   * This replaces the token-level approach: instead of splitting into tokens and
+   * tracking per-token line origin, each normalized line becomes the atomic
+   * comparison unit for LCS, eliminating cross-line token leakage.
+   */
+  normalizeToLines(rawCode: string): LineMapping {
+    if (!rawCode) {
+      return { normalizedLines: [], originalLineIndices: [], nonBlankLineCount: 0, normalizedText: '' };
+    }
+
+    const normalizedLines: string[] = [];
+    const originalLineIndices: number[] = [];
+    const normalizedTextParts: string[] = [];
+
+    const lines = rawCode.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      // Normalize each line: strip all whitespace + lowercase
+      const normalized = lines[i].replace(/\s+/g, '').toLowerCase();
+      if (normalized.length === 0) continue; // Skip blank lines
+
+      normalizedLines.push(normalized);
+      originalLineIndices.push(i); // Map back to original 0-indexed line number
+      normalizedTextParts.push(normalized); // For Winnowing compatibility
+    }
+
+    return {
+      normalizedLines,
+      originalLineIndices,
+      nonBlankLineCount: normalizedLines.length,
+      normalizedText: normalizedTextParts.join(''),
     };
   }
 }

@@ -123,6 +123,7 @@ export class LCS {
    * @param refTokens The base token array
    * @param tgtTokens The token array whose matched indices are desired
    * @returns Array of token indices in `tgtTokens` that matched.
+   * @deprecated Use calculateTraceableLcsLines() for line-level LCS. Kept for backward compatibility.
    */
   calculateTraceableLcsTokens(refTokens: string[], tgtTokens: string[]): number[] {
     if (refTokens.length === 0 || tgtTokens.length === 0) return [];
@@ -188,6 +189,70 @@ export class LCS {
     }
 
     return matchedTargetIndices.reverse();
+  }
+
+  /**
+   * Line-level LCS: treats each normalized line as an atomic comparison unit.
+   * Returns the indices of `tgtLines` that were matched in the LCS.
+   *
+   * Since line counts are typically 1-2 orders of magnitude smaller than token
+   * counts (hundreds of lines vs thousands of tokens), the DP matrix is very
+   * compact and no circuit breaker is needed.
+   *
+   * @param refLines Normalized lines from the reference (AI) code
+   * @param tgtLines Normalized lines from the target (diff chunk) code
+   * @returns Array of indices into `tgtLines` that matched (0-indexed, ascending)
+   */
+  calculateTraceableLcsLines(refLines: string[], tgtLines: string[]): number[] {
+    if (refLines.length === 0 || tgtLines.length === 0) return [];
+
+    const m = refLines.length;
+    const n = tgtLines.length;
+
+    // DP matrix (m+1) × (n+1). Line counts are small, so no circuit breaker needed.
+    // Use Uint16Array for lines (max 65535 lines — more than sufficient).
+    const dp = new Uint16Array((m + 1) * (n + 1));
+
+    // Fill DP
+    for (let i = 1; i <= m; i++) {
+      const rowOffset = i * (n + 1);
+      const prevRowOffset = (i - 1) * (n + 1);
+
+      for (let j = 1; j <= n; j++) {
+        if (refLines[i - 1] === tgtLines[j - 1]) {
+          dp[rowOffset + j] = dp[prevRowOffset + j - 1] + 1;
+        } else {
+          dp[rowOffset + j] = Math.max(
+            dp[prevRowOffset + j],     // up
+            dp[rowOffset + j - 1],     // left
+          );
+        }
+      }
+    }
+
+    // Backtrack to find matched target line indices
+    let i = m;
+    let j = n;
+    const matchedLineIndices: number[] = [];
+
+    while (i > 0 && j > 0) {
+      if (refLines[i - 1] === tgtLines[j - 1]) {
+        matchedLineIndices.push(j - 1);
+        i--;
+        j--;
+      } else {
+        const rowOffset = i * (n + 1);
+        const prevRowOffset = (i - 1) * (n + 1);
+
+        if (dp[prevRowOffset + j] > dp[rowOffset + j - 1]) {
+          i--;
+        } else {
+          j--;
+        }
+      }
+    }
+
+    return matchedLineIndices.reverse();
   }
 
   /**
