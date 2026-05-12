@@ -9,7 +9,7 @@ import {
 } from '../../types';
 import { DiffParser } from './diff-parser';
 import { SimilarityEngine } from './similarity-engine';
-import { Normalizer } from './normalizer';
+import { Normalizer, LineMapping } from './normalizer';
 
 /**
  * Enriched DiffChunk with file-level context for pipeline evaluation.
@@ -124,12 +124,15 @@ export class AttributionWorker {
    */
   private normalizeMessages(
     messages: AiMessage[],
-  ): Array<AiMessage & { normalizedContent: string }> {
-    return messages.map(msg => ({
-      ...msg,
-      normalizedContent:
-        msg.normalizedContent ?? this.normalizer.normalizeText(msg.rawContent),
-    }));
+  ): Array<AiMessage & { normalizedContent: string; lineMapping: LineMapping }> {
+    return messages.map(msg => {
+      const lineMapping = this.normalizer.normalizeToLines(msg.rawContent);
+      return {
+        ...msg,
+        normalizedContent: msg.normalizedContent ?? lineMapping.normalizedText,
+        lineMapping,
+      };
+    });
   }
 
   /**
@@ -145,7 +148,7 @@ export class AttributionWorker {
 
   private async processChunk(
     chunk: EnrichedChunk,
-    messages: Array<AiMessage & { normalizedContent: string }>,
+    messages: Array<AiMessage & { normalizedContent: string; lineMapping: LineMapping }>,
   ): Promise<MatchResult> {
     // Collect all qualifying message evaluations
     interface CandidateMatch {
@@ -172,6 +175,7 @@ export class AttributionWorker {
           chunkStartLine: chunk.startLine,
           chunkEndLine: chunk.endLine,
           normalizedAi: msg.normalizedContent,
+          aiLineMapping: msg.lineMapping,
           chunkLineMapping: chunkLineMapping,
         },
       );
@@ -181,18 +185,27 @@ export class AttributionWorker {
         bestCandidate = { messageId: msg.messageId, result };
       }
 
-      // Collect all messages with >= threshold contribution (L2 score basis) and > minLines exact contribution
+      // Collect all messages with >= threshold contribution (L2 score basis) and >= minLines exact contribution
       const l2Score = result.details.l2LcsScore ?? result.score;
       if (
-        l2Score >= this.config.multiMessage.threshold ||
-        (result.exactContributedLines ?? 0) > this.config.multiMessage.minLines &&
-        result.matchType !== 'NONE'
+        result.matchType !== 'NONE' &&
+        (l2Score >= this.config.multiMessage.threshold ||
+          (result.exactContributedLines ?? 0) >= this.config.multiMessage.minLines)
       ) {
         candidates.push({ messageId: msg.messageId, result });
       }
 
       // Early exit: if L1 STRICT match found, this single message explains the whole chunk
       if (result.matchType === 'STRICT') break;
+    }
+
+    // Ensure bestCandidate is ALWAYS in candidates if it's a valid match
+    // (It might have been excluded above if it didn't meet the multiMessage thresholds)
+    if (bestCandidate && bestCandidate.result.matchType !== 'NONE') {
+      const alreadyInCandidates = candidates.some(c => c.messageId === bestCandidate!.messageId);
+      if (!alreadyInCandidates) {
+        candidates.push(bestCandidate);
+      }
     }
 
     // ── Union-merge contributedLineIndices across all qualifying messages ──
@@ -209,6 +222,18 @@ export class AttributionWorker {
     const attribution = bestCandidate
       ? SimilarityEngine.matchTypeToAttribution(bestCandidate.result.matchType)
       : 'none';
+
+    // If no message met the threshold to claim this chunk, it's not attributed at all.
+    if (attribution === 'none') {
+      return {
+        chunk,
+        bestMatch: null,
+        matchedMessages: [],
+        matchedMessageIds: '',
+        attribution: 'none',
+        contributedLines: 0,
+      };
+    }
 
     const totalLines = chunk.endLine - chunk.startLine + 1;
     let contributedLines: number;
@@ -233,7 +258,6 @@ export class AttributionWorker {
           totalLines * (bestCandidate?.result.score ?? 0),
         );
         break;
-      case 'none':
       default:
         contributedLines = 0;
         break;

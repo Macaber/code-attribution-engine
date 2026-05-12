@@ -91,10 +91,11 @@ export class SimilarityEngine {
       chunkEndLine?: number;     // Diff chunk end line in file (1-indexed)
       normalizedAi?: string;     // Pre-calculated normalized AI text
       chunkMapping?: TokenMapping;// Pre-calculated chunk mapping (legacy, unused)
-      chunkLineMapping?: LineMapping; // Pre-calculated line mapping for line-level LCS
+      chunkLineMapping?: LineMapping; // Pre-calculated line mapping for diff chunk
+      aiLineMapping?: LineMapping; // Pre-calculated line mapping for AI code
     },
   ): Promise<EvaluationResult> {
-    const aiLineMapping = this.normalizer.normalizeToLines(aiCode);
+    const aiLineMapping = options?.aiLineMapping ?? this.normalizer.normalizeToLines(aiCode);
     const normalizedAi = options?.normalizedAi ?? aiLineMapping.normalizedText;
     const chunkLineMapping = options?.chunkLineMapping ?? this.normalizer.normalizeToLines(diffChunkContent);
     const normalizedChunk = chunkLineMapping.normalizedText;
