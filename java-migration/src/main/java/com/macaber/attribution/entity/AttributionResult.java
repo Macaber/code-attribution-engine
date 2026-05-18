@@ -15,7 +15,7 @@ import java.time.LocalDateTime;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@TableName("attribution_results")
+@TableName("attribution_reports")
 public class AttributionResult {
 
     @TableId(type = IdType.AUTO)
@@ -27,11 +27,20 @@ public class AttributionResult {
     @TableField("repo_name")
     private String repoName;
 
-    @TableField("user_oa")
-    private String userOa;
+    @TableField("user_id")
+    private String userId;
+
+    @TableField("sys_code")
+    private String sysCode;
+
+    @TableField("title")
+    private String title;
 
     @TableField("total_code_lines")
     private Integer totalCodeLines;
+
+    @TableField("diff_lines")
+    private Integer diffLines;
 
     @TableField("analyzed_lines")
     private Integer analyzedLines;
@@ -41,6 +50,27 @@ public class AttributionResult {
 
     @TableField("ai_contribution_ratio")
     private Double aiContributionRatio;
+
+    @TableField("skipped_lines")
+    private Integer skippedLines;
+
+    @TableField("skipped_file_count")
+    private Integer skippedFileCount;
+
+    @TableField("strict_matches")
+    private Integer strictMatches;
+
+    @TableField("fuzzy_matches")
+    private Integer fuzzyMatches;
+
+    @TableField("deep_refactor_matches")
+    private Integer deepRefactorMatches;
+
+    @TableField("no_matches")
+    private Integer noMatches;
+
+    @TableField("elapsed_ms")
+    private Integer elapsedMs;
 
     @TableField("created_at")
     private LocalDateTime createdAt;

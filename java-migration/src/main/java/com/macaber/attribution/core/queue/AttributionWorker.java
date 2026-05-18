@@ -3,6 +3,8 @@ package com.macaber.attribution.core.queue;
 import com.macaber.attribution.core.*;
 import com.macaber.attribution.entity.AttributionResult;
 import com.macaber.attribution.service.AttributionResultService;
+import com.macaber.attribution.service.AttributionChunkDetailService;
+import com.macaber.attribution.entity.AttributionChunkDetail;
 import com.macaber.attribution.dto.*;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -43,6 +45,7 @@ public class AttributionWorker {
     private final RedissonClient redissonClient;
     private final SimilarityEngine similarityEngine;
     private final AttributionResultService resultService;
+    private final AttributionChunkDetailService chunkDetailService;
     private final DiffParser diffParser = new DiffParser();
     private final Normalizer normalizer = new Normalizer();
 
@@ -77,6 +80,7 @@ public class AttributionWorker {
     }
 
     private void processJob(AttributionJobData jobData) {
+        long startTime = System.currentTimeMillis();
         log.info("[Worker] Processing attribution job for mergeId: {}", jobData.getMergeId());
 
         List<EnrichedChunk> enrichedChunks = new ArrayList<>();
@@ -117,7 +121,8 @@ public class AttributionWorker {
         }
 
         // ── Step 4: Summarize and Save to DB ──
-        saveSummary(results, jobData);
+        long elapsedMs = System.currentTimeMillis() - startTime;
+        saveSummary(results, jobData, elapsedMs);
     }
 
     /**
@@ -299,7 +304,7 @@ public class AttributionWorker {
      * Summarize results and save to DB.
      * Aligned with TS: summarize() in attribution.worker.ts
      */
-    private void saveSummary(List<MatchResult> results, AttributionJobData jobData) {
+    private void saveSummary(List<MatchResult> results, AttributionJobData jobData, long elapsedMs) {
         double totalAiContributedLines = results.stream()
                 .mapToDouble(MatchResult::getContributedLines).sum();
 
@@ -308,10 +313,30 @@ public class AttributionWorker {
                 .mapToInt(r -> r.getChunk().getNonBlankLineCount())
                 .sum();
 
+        int diffLines = 0;
+        int strictMatches = 0;
+        int fuzzyMatches = 0;
+        int deepRefactorMatches = 0;
+        int noMatches = 0;
+
+        for (MatchResult r : results) {
+            String attr = r.getAttribution();
+            if ("strict".equals(attr)) strictMatches++;
+            else if ("fuzzy".equals(attr)) fuzzyMatches++;
+            else if ("deep_refactor".equals(attr)) deepRefactorMatches++;
+            else noMatches++;
+
+            diffLines += (r.getChunk().getEndLine() - r.getChunk().getStartLine() + 1);
+        }
+
         // ── Total code lines (from fileDetails) ──
         int totalCodeLines = 0;
+        int skippedFileCount = 0;
         if (jobData.getFileDetails() != null) {
             for (var f : jobData.getFileDetails()) {
+                if (f.getDiff() == null || f.getDiff().trim().isEmpty()) {
+                    skippedFileCount++;
+                }
                 if (f.getCode() != null && !f.getCode().isEmpty()) {
                     // Count newlines + 1 (matching TS: (code.match(/\n/g)?.length ?? 0) + 1)
                     int lineCount = 1;
@@ -330,15 +355,48 @@ public class AttributionWorker {
         AttributionResult resultRecord = AttributionResult.builder()
                 .mergeId(jobData.getMergeId())
                 .repoName(jobData.getRepoName())
-                .userOa(jobData.getUserId())
+                .userId(jobData.getUserId())
+                .sysCode(jobData.getSysCode())
+                .title(jobData.getTitle())
                 .totalCodeLines(totalCodeLines)
+                .diffLines(diffLines)
                 .analyzedLines(totalAnalyzedLines)
                 .aiContributedLines(Math.round(totalAiContributedLines * 100.0) / 100.0)
                 .aiContributionRatio(ratio)
+                .skippedLines(0) // Assuming skippedLines applies differently or is 0
+                .skippedFileCount(skippedFileCount)
+                .strictMatches(strictMatches)
+                .fuzzyMatches(fuzzyMatches)
+                .deepRefactorMatches(deepRefactorMatches)
+                .noMatches(noMatches)
+                .elapsedMs((int) elapsedMs)
                 .createdAt(LocalDateTime.now())
                 .build();
 
         resultService.save(resultRecord);
+        
+        List<AttributionChunkDetail> chunkDetails = new ArrayList<>();
+        for (MatchResult r : results) {
+            AttributionChunkDetail detail = AttributionChunkDetail.builder()
+                    .reportId(resultRecord.getId())
+                    .filePath(r.getChunk().getFilePath())
+                    .startLine(r.getChunk().getStartLine())
+                    .endLine(r.getChunk().getEndLine())
+                    .totalLines(r.getChunk().getEndLine() - r.getChunk().getStartLine() + 1)
+                    .analyzedLines(r.getChunk().getNonBlankLineCount())
+                    .attribution(r.getAttribution())
+                    .contributedLines(r.getContributedLines())
+                    .matchedMessageId(r.getMatchedMessageIds().isEmpty() ? null : r.getMatchedMessageIds())
+                    .score(r.getBestMatch() != null ? r.getBestMatch().getScore() : 0.0)
+                    .matchType(r.getBestMatch() != null ? r.getBestMatch().getMatchType() : "NONE")
+                    .level(r.getBestMatch() != null ? r.getBestMatch().getLevel() : "FAILED_ALL")
+                    .build();
+            chunkDetails.add(detail);
+        }
+        
+        if (!chunkDetails.isEmpty()) {
+            chunkDetailService.saveBatch(chunkDetails);
+        }
 
         log.info("[Worker] Finished processing job for mergeId: {}. AI Contributed Lines: {}, Ratio: {}",
                 jobData.getMergeId(), totalAiContributedLines, ratio);
