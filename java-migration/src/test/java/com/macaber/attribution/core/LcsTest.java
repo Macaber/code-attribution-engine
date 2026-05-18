@@ -1,8 +1,10 @@
 package com.macaber.attribution.core;
 
 import org.junit.jupiter.api.Test;
+import java.util.Arrays;
 import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class LcsTest {
 
@@ -12,6 +14,7 @@ class LcsTest {
         assertEquals(2, lcs.calculateLcsLength("abc", "acd"));
         assertEquals(3, lcs.calculateLcsLength("stone", "longest"));
         assertEquals(0, lcs.calculateLcsLength("", "abc"));
+        assertEquals(0, lcs.calculateLcsLength(null, "abc"));
     }
 
     @Test
@@ -19,21 +22,65 @@ class LcsTest {
         LCS lcs = new LCS();
         List<Integer> indices = lcs.calculateTraceableLcs("abc", "acd");
         assertEquals(List.of(0, 1), indices); // 'a' at 0, 'c' at 1 in "acd"
-        
-        List<Integer> indices2 = lcs.calculateTraceableLcs("stone", "longest");
-        // "stone" vs "longest"
-        // 'o' matches 'o' (index 1 in longest)
-        // 'n' matches 'n' (index 2 in longest)
-        // 'e' matches 'e' (index 4 in longest)
-        // Wait, "stone" has 'o','n','e'. "longest" has 'o','n','e'.
-        // longest: l(0) o(1) n(2) g(3) e(4) s(5) t(6)
-        // stone: s(0) t(1) o(2) n(3) e(4)
-        // Longest common subsequence is "one" (length 3)? Or "one" plus 's'/'t'?
-        // Wait!
-        // longest: l o n g e s t
-        // stone:   s t o n e
-        // s, t matches s(5), t(6) ? Or o,n,e matches?
-        // If "one", len 3. If "st", len 2. So "one" is longer.
-        // Let's just test a simpler one.
+    }
+
+    @Test
+    void testCalculateTraceableLcs_EmptyInput() {
+        LCS lcs = new LCS();
+        assertEquals(List.of(), lcs.calculateTraceableLcs("", "abc"));
+        assertEquals(List.of(), lcs.calculateTraceableLcs("abc", ""));
+        assertEquals(List.of(), lcs.calculateTraceableLcs(null, "abc"));
+    }
+
+    @Test
+    void testCalculateTraceableLcsLines() {
+        LCS lcs = new LCS();
+
+        // Exact line match
+        List<String> refLines = Arrays.asList("inta=1;", "returnb;", "console.log();");
+        List<String> tgtLines = Arrays.asList("inta=1;", "returnc;", "console.log();");
+
+        List<Integer> matched = lcs.calculateTraceableLcsLines(refLines, tgtLines);
+        // "inta=1;" matches at index 0, "console.log();" matches at index 2
+        assertEquals(List.of(0, 2), matched);
+    }
+
+    @Test
+    void testCalculateTraceableLcsLines_AllMatch() {
+        LCS lcs = new LCS();
+
+        List<String> refLines = Arrays.asList("line1", "line2", "line3");
+        List<String> tgtLines = Arrays.asList("line1", "line2", "line3");
+
+        List<Integer> matched = lcs.calculateTraceableLcsLines(refLines, tgtLines);
+        assertEquals(List.of(0, 1, 2), matched);
+    }
+
+    @Test
+    void testCalculateTraceableLcsLines_NoMatch() {
+        LCS lcs = new LCS();
+
+        List<String> refLines = Arrays.asList("aaa", "bbb", "ccc");
+        List<String> tgtLines = Arrays.asList("xxx", "yyy", "zzz");
+
+        List<Integer> matched = lcs.calculateTraceableLcsLines(refLines, tgtLines);
+        assertEquals(List.of(), matched);
+    }
+
+    @Test
+    void testCalculateTraceableLcsLines_EmptyInput() {
+        LCS lcs = new LCS();
+        assertEquals(List.of(), lcs.calculateTraceableLcsLines(List.of(), Arrays.asList("a")));
+        assertEquals(List.of(), lcs.calculateTraceableLcsLines(Arrays.asList("a"), List.of()));
+        assertEquals(List.of(), lcs.calculateTraceableLcsLines(null, Arrays.asList("a")));
+    }
+
+    @Test
+    void testCalculateScore() {
+        LCS lcs = new LCS();
+        assertEquals(1.0, lcs.calculateScore("abc", "abc"));
+        assertEquals(0.0, lcs.calculateScore("abc", ""));
+        assertEquals(0.0, lcs.calculateScore("", "abc"));
+        assertTrue(lcs.calculateScore("abcdef", "ace") > 0.5);
     }
 }

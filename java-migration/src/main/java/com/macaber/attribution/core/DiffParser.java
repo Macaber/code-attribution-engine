@@ -9,6 +9,8 @@ import java.util.regex.Pattern;
  * DiffParser — Extracts logical chunks of added lines from a unified Git diff.
  *
  * Parses standard unified diffs and groups contiguous added lines into DiffChunk objects.
+ *
+ * Aligned with TS: src/domains/attribution/diff-parser.ts
  */
 public class DiffParser {
 
@@ -59,7 +61,7 @@ public class DiffParser {
                 if (startLine == null) {
                     startLine = currentLineNumber;
                 }
-                currentChunkLines.add(line.substring(1));
+                currentChunkLines.add(line.substring(1)); // Strip '+' prefix
                 currentLineNumber++;
             } else if (line.startsWith("-") && !line.startsWith("---")) {
                 flushChunk(chunks, currentFilePath, startLine, currentLineNumber - 1, currentChunkLines);
@@ -80,15 +82,24 @@ public class DiffParser {
         return chunks;
     }
 
+    /**
+     * Build a DiffChunk from collected lines.
+     * Now calculates nonBlankLineCount to match TS behavior.
+     */
     private void flushChunk(List<DiffChunk> chunks, String filePath, Integer startLine, int endLine, List<String> lines) {
         if (!lines.isEmpty() && startLine != null) {
             String content = String.join("\n", lines);
+            int nonBlankLineCount = 0;
+            for (String line : lines) {
+                if (!line.trim().isEmpty()) nonBlankLineCount++;
+            }
             DiffChunk chunk = DiffChunk.builder()
                     .filePath(filePath)
                     .startLine(startLine)
                     .endLine(endLine)
                     .content(content)
                     .normalizedContent(normalizer.normalizeText(content))
+                    .nonBlankLineCount(nonBlankLineCount)
                     .build();
             chunks.add(chunk);
         }

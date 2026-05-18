@@ -3,6 +3,7 @@ package com.macaber.attribution.core;
 import org.junit.jupiter.api.Test;
 import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class NormalizerTest {
 
@@ -14,22 +15,46 @@ class NormalizerTest {
     }
 
     @Test
-    void testNormalizeWithMapping() {
+    void testNormalizeText_EmptyInput() {
+        Normalizer normalizer = new Normalizer();
+        assertEquals("", normalizer.normalizeText(null));
+        assertEquals("", normalizer.normalizeText(""));
+    }
+
+    @Test
+    void testNormalizeToLines() {
         Normalizer normalizer = new Normalizer();
         String raw = "int a = 1;\nreturn a;";
-        LineMapping mapping = normalizer.normalizeWithMapping(raw);
-        
+        LineMapping mapping = normalizer.normalizeToLines(raw);
+
+        // Two non-blank lines
+        assertEquals(2, mapping.getNonBlankLineCount());
+        assertEquals(List.of("inta=1;", "returna;"), mapping.getNormalizedLines());
+        assertEquals(List.of(0, 1), mapping.getOriginalLineIndices());
         assertEquals("inta=1;returna;", mapping.getNormalizedText());
-        assertEquals(15, mapping.getCharToLineMap().size());
-        
-        // "inta=1;" -> 7 chars, line 0
-        assertEquals(0, mapping.getCharToLineMap().get(0));
-        assertEquals(0, mapping.getCharToLineMap().get(6));
-        // "returna;" -> 8 chars, line 1
-        assertEquals(1, mapping.getCharToLineMap().get(7));
-        assertEquals(1, mapping.getCharToLineMap().get(14));
-        
-        assertEquals(7, mapping.getLineCharCounts().get(0));
-        assertEquals(8, mapping.getLineCharCounts().get(1));
+    }
+
+    @Test
+    void testNormalizeToLines_SkipsBlankLines() {
+        Normalizer normalizer = new Normalizer();
+        String raw = "line1\n\n  \nline4";
+        LineMapping mapping = normalizer.normalizeToLines(raw);
+
+        assertEquals(2, mapping.getNonBlankLineCount());
+        assertEquals(List.of("line1", "line4"), mapping.getNormalizedLines());
+        // Original indices: line1 is at index 0, line4 is at index 3
+        assertEquals(List.of(0, 3), mapping.getOriginalLineIndices());
+    }
+
+    @Test
+    void testNormalizeToLines_EmptyInput() {
+        Normalizer normalizer = new Normalizer();
+        LineMapping mapping = normalizer.normalizeToLines(null);
+        assertEquals(0, mapping.getNonBlankLineCount());
+        assertTrue(mapping.getNormalizedLines().isEmpty());
+
+        LineMapping mapping2 = normalizer.normalizeToLines("");
+        assertEquals(0, mapping2.getNonBlankLineCount());
+        assertTrue(mapping2.getNormalizedLines().isEmpty());
     }
 }
