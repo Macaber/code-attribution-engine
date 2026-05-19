@@ -24,6 +24,7 @@ public class EnrichedChunk extends DiffChunk {
         this.setContent(base.getContent());
         this.setNormalizedContent(base.getNormalizedContent());
         this.setNonBlankLineCount(base.getNonBlankLineCount());
+        this.setUserId(base.getUserId());
         this.fileContent = fileContent;
         this.fileAddedLineCount = fileAddedLineCount;
     }

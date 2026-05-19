@@ -1,0 +1,8 @@
+--- a/file.txt
++++ b/file.txt
+@@ -10,3 +10,4 @@
+ context
+-deleted
++added1
++added2
+ context

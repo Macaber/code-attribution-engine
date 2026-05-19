@@ -40,14 +40,17 @@ public class WebhookController {
     @PostMapping("/doMerge")
     public ResponseEntity<?> doMerge(@RequestBody DoMergePayload payload) {
         if (payload.getMergeId() == null || payload.getRepoName() == null || payload.getDetail() == null) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Missing required fields: mergeId, repoName, detail"));
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Missing required fields: mergeId, repoName, detail"));
         }
 
         List<MergeFileDetail> fileDetails;
         try {
-            fileDetails = objectMapper.readValue(payload.getDetail(), new TypeReference<List<MergeFileDetail>>() {});
+            fileDetails = objectMapper.readValue(payload.getDetail(), new TypeReference<List<MergeFileDetail>>() {
+            });
         } catch (JsonProcessingException e) {
-            return ResponseEntity.badRequest().body(Map.of("error", "Invalid detail field: expected JSON array of {path, code, diff}"));
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Invalid detail field: expected JSON array of {path, code, diff}"));
         }
 
         // Filter out entries without diffs
@@ -59,19 +62,40 @@ public class WebhookController {
             return ResponseEntity.ok(Map.of(
                     "status", "skipped",
                     "mergeId", payload.getMergeId(),
-                    "message", "No file diffs to analyze"
-            ));
+                    "message", "No file diffs to analyze"));
         }
 
         log.info("[Webhook] doMerge received — mergeId: {}, repo: {}, files: {}, operator: {}",
                 payload.getMergeId(), payload.getRepoName(), fileDetails.size(), payload.getOa());
 
+        // ── Extract all distinct userIds from diff lines ──
+        // Diff lines follow format: (username)+content or (username)-content
+        java.util.Set<String> involvedUserIds = new java.util.LinkedHashSet<>();
+        java.util.regex.Pattern userPattern = java.util.regex.Pattern.compile("^\\(([^)]+)\\)[+-]");
+        for (MergeFileDetail f : fileDetails) {
+            if (f.getDiff() == null)
+                continue;
+            for (String line : f.getDiff().split("\n")) {
+                java.util.regex.Matcher m = userPattern.matcher(line);
+                if (m.find()) {
+                    involvedUserIds.add(m.group(1));
+                }
+            }
+        }
+
+        // Fallback: if no user prefixes found (old diff format), use the submitter's OA
+        if (involvedUserIds.isEmpty()) {
+            involvedUserIds.add(payload.getOa());
+        }
+
+        log.info("[Webhook] Involved users in diff: {}", involvedUserIds);
+
         LocalDateTime oneMonthAgo = LocalDateTime.now().minusMonths(1);
 
-        // Fetch AI messages from database for this user
+        // Fetch AI messages for ALL involved users
         LambdaQueryWrapper<AiMessage> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(AiMessage::getUserOa, payload.getOa())
-                    .ge(AiMessage::getCreatedAt, oneMonthAgo);
+        queryWrapper.in(AiMessage::getUserOa, involvedUserIds)
+                .ge(AiMessage::getCreatedAt, oneMonthAgo);
 
         List<AiMessage> rows = aiMessageService.list(queryWrapper);
         List<AiMessageDto> aiMessages = new ArrayList<>();
@@ -79,7 +103,9 @@ public class WebhookController {
         for (AiMessage row : rows) {
             try {
                 // In Java, we typically just parse the JSON arguments string
-                Map<String, Object> args = objectMapper.readValue(row.getFunctionArguments(), new TypeReference<Map<String, Object>>() {});
+                Map<String, Object> args = objectMapper.readValue(row.getFunctionArguments(),
+                        new TypeReference<Map<String, Object>>() {
+                        });
                 String rawContent = "";
 
                 if ("edit".equals(row.getFunctionName()) && args.containsKey("newString")) {
@@ -91,7 +117,7 @@ public class WebhookController {
                 if (rawContent != null && !rawContent.trim().isEmpty()) {
                     aiMessages.add(AiMessageDto.builder()
                             .messageId(String.valueOf(row.getId()))
-                            .userId(payload.getOa())
+                            .userId(row.getUserOa()) // Use the actual message owner, not payload submitter
                             .timestamp(row.getCreatedAt())
                             .rawContent(rawContent)
                             .build());
@@ -101,7 +127,7 @@ public class WebhookController {
             }
         }
 
-        log.info("[Webhook] Fetched {} valid AI messages for user {}", aiMessages.size(), payload.getOa());
+        log.info("[Webhook] Fetched {} valid AI messages for users {}", aiMessages.size(), involvedUserIds);
 
         AttributionJobData jobData = AttributionJobData.builder()
                 .mergeId(payload.getMergeId())
@@ -120,7 +146,6 @@ public class WebhookController {
                 "mergeId", payload.getMergeId(),
                 "repoName", payload.getRepoName(),
                 "filesCount", fileDetails.size(),
-                "message", "Attribution analysis job queued"
-        ));
+                "message", "Attribution analysis job queued"));
     }
 }

@@ -3,42 +3,91 @@ package com.macaber.attribution.core;
 import org.junit.jupiter.api.Test;
 import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 class DiffParserTest {
 
     @Test
     void testParseUnifiedDiff() {
-        String rawDiff = 
-            "diff --git a/src/app.ts b/src/app.ts\n" +
-            "--- a/src/app.ts\n" +
-            "+++ b/src/app.ts\n" +
-            "@@ -10,3 +10,5 @@\n" +
-            " context1\n" +
-            "+added 1\n" +
-            "+added 2\n" +
-            " context2\n" +
-            "@@ -20,2 +22,3 @@\n" +
-            " context3\n" +
-            "-removed\n" +
-            "+added 3\n" +
-            " context4\n";
+        String rawDiff = "diff --git a/src/app.ts b/src/app.ts\n" +
+                "--- a/src/app.ts\n" +
+                "+++ b/src/app.ts\n" +
+                "@@ -10,3 +10,5 @@\n" +
+                " context1\n" +
+                "(sun_yunfeng)+added 1\n" +
+                "(zhuhongxin)+added 2\n" +
+                " context2\n" +
+                "@@ -20,2 +22,3 @@\n" +
+                " context3\n" +
+                "(zhuhongxin)-removed\n" +
+                "(sun_yunfeng)+added 3\n" +
+                " context4\n";
 
         DiffParser parser = new DiffParser();
         List<DiffChunk> chunks = parser.parse(rawDiff);
 
-        assertEquals(2, chunks.size());
+        // Two different users in hunk1 → split into 2 chunks, plus 1 chunk in hunk2 = 3 total
+        assertEquals(3, chunks.size());
 
-        // Chunk 1
+        // Chunk 1: sun_yunfeng's added line in hunk1
         assertEquals("src/app.ts", chunks.get(0).getFilePath());
         assertEquals(11, chunks.get(0).getStartLine());
-        assertEquals(12, chunks.get(0).getEndLine());
-        assertEquals("added 1\nadded 2", chunks.get(0).getContent());
-        assertEquals("added1added2", chunks.get(0).getNormalizedContent());
+        assertEquals(11, chunks.get(0).getEndLine());
+        assertEquals("added 1", chunks.get(0).getContent());
+        assertEquals("sun_yunfeng", chunks.get(0).getUserId());
 
-        // Chunk 2
+        // Chunk 2: zhuhongxin's added line in hunk1
         assertEquals("src/app.ts", chunks.get(1).getFilePath());
-        assertEquals(23, chunks.get(1).getStartLine());
-        assertEquals(23, chunks.get(1).getEndLine());
-        assertEquals("added 3", chunks.get(1).getContent());
+        assertEquals(12, chunks.get(1).getStartLine());
+        assertEquals(12, chunks.get(1).getEndLine());
+        assertEquals("added 2", chunks.get(1).getContent());
+        assertEquals("zhuhongxin", chunks.get(1).getUserId());
+
+        // Chunk 3: sun_yunfeng's added line in hunk2 (after zhuhongxin's removed line)
+        assertEquals("src/app.ts", chunks.get(2).getFilePath());
+        assertEquals(23, chunks.get(2).getStartLine());
+        assertEquals(23, chunks.get(2).getEndLine());
+        assertEquals("added 3", chunks.get(2).getContent());
+        assertEquals("sun_yunfeng", chunks.get(2).getUserId());
+    }
+
+    @Test
+    void testParseContiguousSameUser() {
+        String rawDiff = "diff --git a/src/utils.ts b/src/utils.ts\n" +
+                "--- a/src/utils.ts\n" +
+                "+++ b/src/utils.ts\n" +
+                "@@ -1,2 +1,4 @@\n" +
+                " context\n" +
+                "(sun_yunfeng)+line 1\n" +
+                "(sun_yunfeng)+line 2\n" +
+                "(sun_yunfeng)+line 3\n";
+
+        DiffParser parser = new DiffParser();
+        List<DiffChunk> chunks = parser.parse(rawDiff);
+
+        // Same user contiguous → 1 chunk
+        assertEquals(1, chunks.size());
+        assertEquals("sun_yunfeng", chunks.get(0).getUserId());
+        assertEquals(2, chunks.get(0).getStartLine());
+        assertEquals(4, chunks.get(0).getEndLine());
+        assertEquals("line 1\nline 2\nline 3", chunks.get(0).getContent());
+    }
+
+    @Test
+    void testParseFallbackWithoutUserPrefix() {
+        String rawDiff = "diff --git a/src/old.ts b/src/old.ts\n" +
+                "--- a/src/old.ts\n" +
+                "+++ b/src/old.ts\n" +
+                "@@ -1,2 +1,3 @@\n" +
+                " context\n" +
+                "+plain added line\n";
+
+        DiffParser parser = new DiffParser();
+        List<DiffChunk> chunks = parser.parse(rawDiff);
+
+        // Backward compat: plain '+' line without user prefix
+        assertEquals(1, chunks.size());
+        assertEquals("plain added line", chunks.get(0).getContent());
+        assertNull(chunks.get(0).getUserId());
     }
 }

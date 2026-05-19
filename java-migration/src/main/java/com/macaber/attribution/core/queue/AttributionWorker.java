@@ -4,8 +4,11 @@ import com.macaber.attribution.core.*;
 import com.macaber.attribution.entity.AttributionResult;
 import com.macaber.attribution.service.AttributionResultService;
 import com.macaber.attribution.service.AttributionChunkDetailService;
+import com.macaber.attribution.service.AttributionFailedJobService;
 import com.macaber.attribution.entity.AttributionChunkDetail;
+import com.macaber.attribution.entity.AttributionFailedJob;
 import com.macaber.attribution.dto.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
@@ -46,6 +49,8 @@ public class AttributionWorker {
     private final SimilarityEngine similarityEngine;
     private final AttributionResultService resultService;
     private final AttributionChunkDetailService chunkDetailService;
+    private final AttributionFailedJobService failedJobService;
+    private final ObjectMapper objectMapper;
     private final DiffParser diffParser = new DiffParser();
     private final Normalizer normalizer = new Normalizer();
 
@@ -67,15 +72,44 @@ public class AttributionWorker {
                 // Blocks until a job is available
                 AttributionJobData jobData = queue.poll(1, TimeUnit.SECONDS);
                 if (jobData != null) {
-                    processJob(jobData);
+                    try {
+                        processJob(jobData);
+                    } catch (Exception ex) {
+                        handleFailedJob(jobData, ex);
+                    }
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 log.info("[Worker] AttributionWorker interrupted");
                 break;
             } catch (Exception e) {
-                log.error("[Worker] Error processing job", e);
+                log.error("[Worker] Error processing queue", e);
             }
+        }
+    }
+
+    private void handleFailedJob(AttributionJobData jobData, Exception ex) {
+        log.error("[Worker] Job failed for mergeId: {}", jobData.getMergeId(), ex);
+        try {
+            java.io.StringWriter sw = new java.io.StringWriter();
+            ex.printStackTrace(new java.io.PrintWriter(sw));
+            
+            String jobDataJson = objectMapper.writeValueAsString(jobData);
+            AttributionFailedJob failedJob = AttributionFailedJob.builder()
+                    .mergeId(jobData.getMergeId())
+                    .repoName(jobData.getRepoName())
+                    .userId(jobData.getUserId())
+                    .jobData(jobDataJson)
+                    .errorMessage(ex.getMessage())
+                    .errorStack(sw.toString())
+                    .attemptCount(1)
+                    .status("pending")
+                    .createdAt(LocalDateTime.now())
+                    .updatedAt(LocalDateTime.now())
+                    .build();
+            failedJobService.save(failedJob);
+        } catch (Exception e) {
+            log.error("[Worker] Failed to save error record for mergeId: {}", jobData.getMergeId(), e);
         }
     }
 
@@ -167,6 +201,13 @@ public class AttributionWorker {
 
         for (NormalizedAiMessage msg : messages) {
             if (msg.normalizedContent == null || msg.normalizedContent.isEmpty()) continue;
+
+            // Only compare against AI messages belonging to the same user as this chunk's author.
+            // If chunk has no userId (backward compat with plain diff format), compare against all messages.
+            if (chunk.getUserId() != null && msg.original.getUserId() != null
+                    && !chunk.getUserId().equals(msg.original.getUserId())) {
+                continue;
+            }
 
             SimilarityEngine.EvaluationContext ctx = SimilarityEngine.EvaluationContext.builder()
                     .fileContent(chunk.getFileContent())
@@ -379,6 +420,7 @@ public class AttributionWorker {
         for (MatchResult r : results) {
             AttributionChunkDetail detail = AttributionChunkDetail.builder()
                     .reportId(resultRecord.getId())
+                    .userId(r.getChunk().getUserId())
                     .filePath(r.getChunk().getFilePath())
                     .startLine(r.getChunk().getStartLine())
                     .endLine(r.getChunk().getEndLine())

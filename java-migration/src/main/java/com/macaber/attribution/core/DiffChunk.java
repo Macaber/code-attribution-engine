@@ -28,4 +28,6 @@ public class DiffChunk {
     private String normalizedContent;
     /** Number of non-blank lines in this chunk */
     private int nonBlankLineCount;
+    /** User who authored the added lines in this chunk (extracted from diff line prefix) */
+    private String userId;
 }

@@ -22,6 +22,9 @@ public class AttributionChunkDetail {
     @TableField("report_id")
     private Long reportId;
 
+    @TableField("user_id")
+    private String userId;
+
     @TableField("file_path")
     private String filePath;
 
