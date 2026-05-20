@@ -1,12 +1,8 @@
 package com.macaber.attribution.controller;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.macaber.attribution.service.AiMessageService;
-import com.macaber.attribution.entity.AiMessage;
-import com.macaber.attribution.dto.AiMessageDto;
 import com.macaber.attribution.dto.AttributionJobData;
 import com.macaber.attribution.dto.DoMergePayload;
 import com.macaber.attribution.dto.MergeFileDetail;
@@ -16,14 +12,15 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import com.macaber.attribution.core.queue.QueueProducer;
 
-import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
  * WebhookController — REST API for receiving CICD doMerge webhooks.
+ *
+ * Thin controller: validates payload, filters empty diffs, and enqueues the job.
+ * AI message fetching and diff parsing are handled by the consumer (AttributionWorker).
  *
  * POST /api/coding/doMerge
  */
@@ -33,7 +30,6 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class WebhookController {
 
-    private final AiMessageService aiMessageService;
     private final ObjectMapper objectMapper;
     private final QueueProducer queueProducer;
 
@@ -46,8 +42,8 @@ public class WebhookController {
 
         List<MergeFileDetail> fileDetails;
         try {
-            fileDetails = objectMapper.readValue(payload.getDetail(), new TypeReference<List<MergeFileDetail>>() {
-            });
+            fileDetails = objectMapper.readValue(payload.getDetail(),
+                    new TypeReference<List<MergeFileDetail>>() {});
         } catch (JsonProcessingException e) {
             return ResponseEntity.badRequest()
                     .body(Map.of("error", "Invalid detail field: expected JSON array of {path, code, diff}"));
@@ -68,67 +64,7 @@ public class WebhookController {
         log.info("[Webhook] doMerge received — mergeId: {}, repo: {}, files: {}, operator: {}",
                 payload.getMergeId(), payload.getRepoName(), fileDetails.size(), payload.getOa());
 
-        // ── Extract all distinct userIds from diff lines ──
-        // Diff lines follow format: (username)+content or (username)-content
-        java.util.Set<String> involvedUserIds = new java.util.LinkedHashSet<>();
-        java.util.regex.Pattern userPattern = java.util.regex.Pattern.compile("^\\(([^)]+)\\)[+-]");
-        for (MergeFileDetail f : fileDetails) {
-            if (f.getDiff() == null)
-                continue;
-            for (String line : f.getDiff().split("\n")) {
-                java.util.regex.Matcher m = userPattern.matcher(line);
-                if (m.find()) {
-                    involvedUserIds.add(m.group(1));
-                }
-            }
-        }
-
-        // Fallback: if no user prefixes found (old diff format), use the submitter's OA
-        if (involvedUserIds.isEmpty()) {
-            involvedUserIds.add(payload.getOa());
-        }
-
-        log.info("[Webhook] Involved users in diff: {}", involvedUserIds);
-
-        LocalDateTime oneMonthAgo = LocalDateTime.now().minusMonths(1);
-
-        // Fetch AI messages for ALL involved users
-        LambdaQueryWrapper<AiMessage> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.in(AiMessage::getUserOa, involvedUserIds)
-                .ge(AiMessage::getCreatedAt, oneMonthAgo);
-
-        List<AiMessage> rows = aiMessageService.list(queryWrapper);
-        List<AiMessageDto> aiMessages = new ArrayList<>();
-
-        for (AiMessage row : rows) {
-            try {
-                // In Java, we typically just parse the JSON arguments string
-                Map<String, Object> args = objectMapper.readValue(row.getFunctionArguments(),
-                        new TypeReference<Map<String, Object>>() {
-                        });
-                String rawContent = "";
-
-                if ("edit".equals(row.getFunctionName()) && args.containsKey("newString")) {
-                    rawContent = (String) args.get("newString");
-                } else if ("write".equals(row.getFunctionName()) && args.containsKey("content")) {
-                    rawContent = (String) args.get("content");
-                }
-
-                if (rawContent != null && !rawContent.trim().isEmpty()) {
-                    aiMessages.add(AiMessageDto.builder()
-                            .messageId(String.valueOf(row.getId()))
-                            .userId(row.getUserOa()) // Use the actual message owner, not payload submitter
-                            .timestamp(row.getCreatedAt())
-                            .rawContent(rawContent)
-                            .build());
-                }
-            } catch (Exception e) {
-                log.warn("[Webhook] Failed to parse ai_message arguments for id {}", row.getId());
-            }
-        }
-
-        log.info("[Webhook] Fetched {} valid AI messages for users {}", aiMessages.size(), involvedUserIds);
-
+        // Build lightweight job data — AI messages will be fetched by the worker
         AttributionJobData jobData = AttributionJobData.builder()
                 .mergeId(payload.getMergeId())
                 .repoName(payload.getRepoName())
@@ -136,7 +72,6 @@ public class WebhookController {
                 .sysCode(payload.getSysCode())
                 .title(payload.getTitle())
                 .fileDetails(fileDetails)
-                .aiMessages(aiMessages)
                 .build();
 
         queueProducer.addJob(jobData);

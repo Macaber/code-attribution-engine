@@ -1,7 +1,11 @@
 package com.macaber.attribution.core.queue;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.macaber.attribution.core.*;
+import com.macaber.attribution.entity.AiMessage;
 import com.macaber.attribution.entity.AttributionResult;
+import com.macaber.attribution.service.AiMessageService;
 import com.macaber.attribution.service.AttributionResultService;
 import com.macaber.attribution.service.AttributionChunkDetailService;
 import com.macaber.attribution.service.AttributionFailedJobService;
@@ -14,7 +18,11 @@ import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RBlockingQueue;
+import org.redisson.api.RRateLimiter;
+import org.redisson.api.RateIntervalUnit;
+import org.redisson.api.RateType;
 import org.redisson.api.RedissonClient;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
@@ -47,6 +55,7 @@ public class AttributionWorker {
 
     private final RedissonClient redissonClient;
     private final SimilarityEngine similarityEngine;
+    private final AiMessageService aiMessageService;
     private final AttributionResultService resultService;
     private final AttributionChunkDetailService chunkDetailService;
     private final AttributionFailedJobService failedJobService;
@@ -58,11 +67,40 @@ public class AttributionWorker {
     private ExecutorService executorService;
     private volatile boolean isRunning = true;
 
+    @Value("${attribution.worker.threads:2}")
+    private int threadCount;
+
+    @Value("${attribution.worker.rate-limiter.enabled:false}")
+    private boolean rateLimiterEnabled;
+
+    @Value("${attribution.worker.rate-limiter.rate:10}")
+    private long rateLimit;
+
+    @Value("${attribution.worker.rate-limiter.interval-seconds:60}")
+    private long rateIntervalSeconds;
+
+    private RRateLimiter rateLimiter;
+
     @PostConstruct
     public void init() {
-        executorService = Executors.newSingleThreadExecutor();
-        executorService.submit(this::processQueue);
-        log.info("[Worker] AttributionWorker started, listening on queue: {}", QUEUE_NAME);
+        if (rateLimiterEnabled) {
+            try {
+                rateLimiter = redissonClient.getRateLimiter("attribution-rate-limiter");
+                // Set rate limit if not already set
+                rateLimiter.trySetRate(RateType.OVERALL, rateLimit, rateIntervalSeconds, RateIntervalUnit.SECONDS);
+                log.info("[Worker] Rate limiter enabled: {} tasks per {} seconds", rateLimit, rateIntervalSeconds);
+            } catch (Exception e) {
+                log.error("[Worker] Failed to initialize Redisson RateLimiter. Rate limiting will be DISABLED. Error: {}", e.getMessage(), e);
+                rateLimiterEnabled = false;
+                rateLimiter = null;
+            }
+        }
+
+        executorService = Executors.newFixedThreadPool(threadCount);
+        for (int i = 0; i < threadCount; i++) {
+            executorService.submit(this::processQueue);
+        }
+        log.info("[Worker] AttributionWorker started with {} threads, listening on queue: {}", threadCount, QUEUE_NAME);
     }
 
     private void processQueue() {
@@ -72,6 +110,10 @@ public class AttributionWorker {
                 // Blocks until a job is available
                 AttributionJobData jobData = queue.poll(1, TimeUnit.SECONDS);
                 if (jobData != null) {
+                    if (rateLimiterEnabled && rateLimiter != null) {
+                        // Blocks until a rate limit token is available
+                        rateLimiter.acquire(1);
+                    }
                     try {
                         processJob(jobData);
                     } catch (Exception ex) {
@@ -80,9 +122,13 @@ public class AttributionWorker {
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                log.info("[Worker] AttributionWorker interrupted");
+                log.info("[Worker] AttributionWorker thread interrupted");
                 break;
             } catch (Exception e) {
+                if (Thread.currentThread().isInterrupted()) {
+                    log.info("[Worker] AttributionWorker thread interrupted during exception");
+                    break;
+                }
                 log.error("[Worker] Error processing queue", e);
             }
         }
@@ -144,8 +190,23 @@ public class AttributionWorker {
             return;
         }
 
-        // ── Step 2: Pre-normalize all AI messages once ──
-        List<NormalizedAiMessage> normalizedMessages = normalizeMessages(jobData.getAiMessages());
+        // ── Step 2: Collect involved userIds from parsed chunks and fetch AI messages from DB ──
+        Set<String> involvedUserIds = new LinkedHashSet<>();
+        for (EnrichedChunk chunk : enrichedChunks) {
+            if (chunk.getUserId() != null) {
+                involvedUserIds.add(chunk.getUserId());
+            }
+        }
+        // Fallback: if no user prefixes found (old diff format), use the job submitter's userId
+        if (involvedUserIds.isEmpty() && jobData.getUserId() != null) {
+            involvedUserIds.add(jobData.getUserId());
+        }
+
+        List<AiMessageDto> aiMessages = fetchAiMessages(involvedUserIds);
+        log.info("[Worker] Fetched {} AI messages for users {} (mergeId: {})",
+                aiMessages.size(), involvedUserIds, jobData.getMergeId());
+
+        List<NormalizedAiMessage> normalizedMessages = normalizeMessages(aiMessages);
 
         // ── Step 3: Run pipeline for each chunk ──
         List<MatchResult> results = new ArrayList<>();
@@ -157,6 +218,53 @@ public class AttributionWorker {
         // ── Step 4: Summarize and Save to DB ──
         long elapsedMs = System.currentTimeMillis() - startTime;
         saveSummary(results, jobData, elapsedMs);
+    }
+
+    /**
+     * Fetch AI messages from DB for the given set of userIds.
+     * Queries ai_messages table for edit/write function calls within the last month,
+     * extracts the raw code content from function arguments.
+     */
+    private List<AiMessageDto> fetchAiMessages(Set<String> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        LocalDateTime oneMonthAgo = LocalDateTime.now().minusMonths(1);
+
+        LambdaQueryWrapper<AiMessage> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.in(AiMessage::getUserOa, userIds)
+                .ge(AiMessage::getCreatedAt, oneMonthAgo);
+
+        List<AiMessage> rows = aiMessageService.list(queryWrapper);
+        List<AiMessageDto> aiMessages = new ArrayList<>();
+
+        for (AiMessage row : rows) {
+            try {
+                Map<String, Object> args = objectMapper.readValue(row.getFunctionArguments(),
+                        new TypeReference<Map<String, Object>>() {});
+                String rawContent = "";
+
+                if ("edit".equals(row.getFunctionName()) && args.containsKey("newString")) {
+                    rawContent = (String) args.get("newString");
+                } else if ("write".equals(row.getFunctionName()) && args.containsKey("content")) {
+                    rawContent = (String) args.get("content");
+                }
+
+                if (rawContent != null && !rawContent.trim().isEmpty()) {
+                    aiMessages.add(AiMessageDto.builder()
+                            .messageId(String.valueOf(row.getId()))
+                            .userId(row.getUserOa())
+                            .timestamp(row.getCreatedAt())
+                            .rawContent(rawContent)
+                            .build());
+                }
+            } catch (Exception e) {
+                log.warn("[Worker] Failed to parse ai_message arguments for id {}", row.getId());
+            }
+        }
+
+        return aiMessages;
     }
 
     /**
