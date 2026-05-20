@@ -19,17 +19,12 @@ import java.util.regex.Pattern;
  */
 public class DiffParser {
 
-    private final Normalizer normalizer;
     private static final Pattern CHUNK_HEADER_PATTERN = Pattern.compile("@@ -\\d+(?:,\\d+)? \\+(\\d+)(?:,\\d+)? @@.*");
     /**
      * Matches lines like: (sun_yunfeng)+added code
      * Group 1 = username, Group 2 = +/- operator, Group 3 = line content
      */
     private static final Pattern USER_LINE_PATTERN = Pattern.compile("^\\(([^)]+)\\)([+-])(.*)$");
-
-    public DiffParser() {
-        this.normalizer = new Normalizer();
-    }
 
     public List<DiffChunk> parse(String rawDiff) {
         List<DiffChunk> chunks = new ArrayList<>();
@@ -148,7 +143,6 @@ public class DiffParser {
                     .startLine(startLine)
                     .endLine(endLine)
                     .content(content)
-                    .normalizedContent(normalizer.normalizeText(content))
                     .nonBlankLineCount(nonBlankLineCount)
                     .userId(userId)
                     .build();

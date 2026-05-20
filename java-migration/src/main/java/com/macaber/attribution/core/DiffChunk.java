@@ -24,8 +24,6 @@ public class DiffChunk {
     private int endLine;
     /** Raw added lines joined with newlines */
     private String content;
-    /** Content after normalization (comments/whitespace removed, lowercased) */
-    private String normalizedContent;
     /** Number of non-blank lines in this chunk */
     private int nonBlankLineCount;
     /** User who authored the added lines in this chunk (extracted from diff line prefix) */

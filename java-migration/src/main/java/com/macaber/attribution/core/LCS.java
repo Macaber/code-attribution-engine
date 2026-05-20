@@ -69,8 +69,6 @@ public class LCS {
             int[] temp = prev;
             prev = curr;
             curr = temp;
-            // Clear curr for next iteration
-            for (int k = 0; k <= n; k++) curr[k] = 0;
         }
 
         return prev[n];

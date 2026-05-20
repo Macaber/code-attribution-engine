@@ -31,6 +31,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import org.springframework.scheduling.concurrent.CustomizableThreadFactory;
 
 /**
  * AttributionWorker — Pipeline orchestrator for code attribution analysis.
@@ -62,6 +63,7 @@ public class AttributionWorker {
     private final ObjectMapper objectMapper;
     private final DiffParser diffParser = new DiffParser();
     private final Normalizer normalizer = new Normalizer();
+    private final PipelineConfig pipelineConfig = new PipelineConfig();
 
     private static final String QUEUE_NAME = "attribution-queue";
     private ExecutorService executorService;
@@ -96,7 +98,7 @@ public class AttributionWorker {
             }
         }
 
-        executorService = Executors.newFixedThreadPool(threadCount);
+        executorService = Executors.newFixedThreadPool(threadCount, new CustomizableThreadFactory("attribution-worker-"));
         for (int i = 0; i < threadCount; i++) {
             executorService.submit(this::processQueue);
         }
@@ -303,9 +305,8 @@ public class AttributionWorker {
         LineMapping chunkLineMapping = normalizer.normalizeToLines(chunk.getContent());
 
         // Get multi-message config
-        PipelineConfig pipelineConfig = new PipelineConfig();
-        double multiMsgThreshold = pipelineConfig.getMultiMessage().getThreshold();
-        int multiMsgMinLines = pipelineConfig.getMultiMessage().getMinLines();
+        double multiMsgThreshold = this.pipelineConfig.getMultiMessage().getThreshold();
+        int multiMsgMinLines = this.pipelineConfig.getMultiMessage().getMinLines();
 
         for (NormalizedAiMessage msg : messages) {
             if (msg.normalizedContent == null || msg.normalizedContent.isEmpty()) continue;

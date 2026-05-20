@@ -2,6 +2,7 @@ package com.macaber.attribution.dto;
 
 import lombok.Builder;
 import lombok.Data;
+import java.io.Serializable;
 import java.util.List;
 
 /**
@@ -13,7 +14,9 @@ import java.util.List;
  */
 @Data
 @Builder
-public class AttributionJobData {
+public class AttributionJobData implements Serializable {
+    private static final long serialVersionUID = 1L;
+
     private String mergeId;
     private String repoName;
     private String userId;

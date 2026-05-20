@@ -77,23 +77,30 @@ public class Winnowing {
         Set<Long> fingerprints = new HashSet<>();
 
         // Monotonic Deque (stores indices of hashes) for O(N) performance
-        int[] deque = new int[hashes.length];
+        // Using a circular array of size w + 1 to avoid allocating hashes.length space
+        int capacity = w + 1;
+        int[] deque = new int[capacity];
         int head = 0;
         int tail = 0;
+        int size = 0;
 
         for (int i = 0; i < hashes.length; i++) {
             // 1. Remove elements out of the current window
-            if (head < tail && deque[head] <= i - w) {
-                head++;
+            if (size > 0 && deque[head] <= i - w) {
+                head = (head + 1) % capacity;
+                size--;
             }
 
             // 2. Maintain monotonic property: remove elements >= current hash
-            while (head < tail && hashes[deque[tail - 1]] >= hashes[i]) {
-                tail--;
+            while (size > 0 && hashes[deque[(tail - 1 + capacity) % capacity]] >= hashes[i]) {
+                tail = (tail - 1 + capacity) % capacity;
+                size--;
             }
 
             // 3. Add current element's index
-            deque[tail++] = i;
+            deque[tail] = i;
+            tail = (tail + 1) % capacity;
+            size++;
 
             // 4. Record the minimum once we've processed at least one full window
             if (i >= w - 1) {
