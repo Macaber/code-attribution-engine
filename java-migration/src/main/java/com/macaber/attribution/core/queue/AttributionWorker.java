@@ -63,7 +63,7 @@ public class AttributionWorker {
     private final ObjectMapper objectMapper;
     private final DiffParser diffParser = new DiffParser();
     private final Normalizer normalizer = new Normalizer();
-    private final PipelineConfig pipelineConfig = new PipelineConfig();
+    private final PipelineConfig pipelineConfig;
 
     private static final String QUEUE_NAME = "attribution-queue";
     private ExecutorService executorService;
@@ -80,6 +80,12 @@ public class AttributionWorker {
 
     @Value("${attribution.worker.rate-limiter.interval-seconds:60}")
     private long rateIntervalSeconds;
+
+    @Value("${attribution.worker.ai-message.limit:1000}")
+    private int aiMessageLimit;
+
+    @Value("${attribution.worker.ai-message.timeframe-days:30}")
+    private int aiMessageTimeframeDays;
 
     private RRateLimiter rateLimiter;
 
@@ -232,11 +238,14 @@ public class AttributionWorker {
             return Collections.emptyList();
         }
 
-        LocalDateTime oneMonthAgo = LocalDateTime.now().minusMonths(1);
+        LocalDateTime startTime = LocalDateTime.now().minusDays(aiMessageTimeframeDays);
 
         LambdaQueryWrapper<AiMessage> queryWrapper = new LambdaQueryWrapper<>();
         queryWrapper.in(AiMessage::getUserOa, userIds)
-                .ge(AiMessage::getCreatedAt, oneMonthAgo);
+                .in(AiMessage::getFunctionName, Arrays.asList("edit", "write"))
+                .ge(AiMessage::getCreatedAt, startTime)
+                .orderByDesc(AiMessage::getCreatedAt)
+                .last("LIMIT " + aiMessageLimit);
 
         List<AiMessage> rows = aiMessageService.list(queryWrapper);
         List<AiMessageDto> aiMessages = new ArrayList<>();
@@ -360,11 +369,43 @@ public class AttributionWorker {
             }
         }
 
-        // ── Union-merge contributedLineIndices across all qualifying messages ──
+        // Sort candidates by the number of matched lines descending.
+        // If the number of matched lines is the same, sort by score descending.
+        candidates.sort((c1, c2) -> {
+            int len1 = c1.result.getContributedLineIndices() != null ? c1.result.getContributedLineIndices().size() : 0;
+            int len2 = c2.result.getContributedLineIndices() != null ? c2.result.getContributedLineIndices().size() : 0;
+            if (len1 != len2) {
+                return Integer.compare(len2, len1); // Descending order of size
+            }
+            return Double.compare(c2.result.getScore(), c1.result.getScore()); // Descending order of score
+        });
+
+        // ── Greedy Set Cover / Deduplication ──
+        List<CandidateMatch> filteredCandidates = new ArrayList<>();
         Set<Integer> mergedLineIndices = new HashSet<>();
         for (CandidateMatch c : candidates) {
-            if (c.result.getContributedLineIndices() != null) {
-                mergedLineIndices.addAll(c.result.getContributedLineIndices());
+            Set<Integer> lineIndices = c.result.getContributedLineIndices();
+            if (lineIndices == null || lineIndices.isEmpty()) {
+                continue;
+            }
+            boolean contributesNewLines = false;
+            for (int lineIdx : lineIndices) {
+                if (!mergedLineIndices.contains(lineIdx)) {
+                    contributesNewLines = true;
+                    break;
+                }
+            }
+            if (contributesNewLines) {
+                filteredCandidates.add(c);
+                mergedLineIndices.addAll(lineIndices);
+            }
+        }
+
+        // Recalculate bestCandidate from the filtered candidates to keep it consistent
+        bestCandidate = null;
+        for (CandidateMatch c : filteredCandidates) {
+            if (bestCandidate == null || c.result.getScore() > bestCandidate.result.getScore()) {
+                bestCandidate = c;
             }
         }
 
@@ -414,7 +455,7 @@ public class AttributionWorker {
         }
 
         // ── Build matchedMessages array ──
-        List<MatchResult.MessageContribution> matchedMessages = candidates.stream()
+        List<MatchResult.MessageContribution> matchedMessages = filteredCandidates.stream()
                 .map(c -> MatchResult.MessageContribution.builder()
                         .messageId(c.messageId)
                         .score(c.result.getScore())

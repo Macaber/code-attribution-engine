@@ -113,6 +113,30 @@ public class SimilarityEngine {
             contributedLineIndices.add(chunkLineMapping.getOriginalLineIndices().get(idx));
         }
 
+        // Trivial line filter: when chunk analyzed lines > 1 and match is exactly 1 line
+        // and that line content is in the configured trivial list, classify as non-match (NONE).
+        if (config.getL2().isFilterTrivialEnabled()
+                && chunkLineMapping.getNormalizedLines().size() > 1
+                && exactContributedLines == 1) {
+            int matchedIdx = matchedNormalizedIndices.get(0);
+            String matchedLineContent = chunkLineMapping.getNormalizedLines().get(matchedIdx);
+            if (config.getL2().getNormalizedTrivialLines().contains(matchedLineContent)) {
+                Map<String, Double> details = new HashMap<>();
+                details.put("l1WinnowingScore", 0.0);
+                details.put("l2LcsScore", 0.0);
+                details.put("trivialFiltered", 1.0);
+                return EvaluationResult.builder()
+                        .score(0)
+                        .matchType(MatchType.NONE)
+                        .level(PipelineLevel.L2)
+                        .details(details)
+                        .exactContributedLines(0)
+                        .contributedLineIndices(new HashSet<>())
+                        .build();
+            }
+        }
+
+
         // ═════════════════════════════════════════════════════
         // Short-text bypass: when either text is shorter than k-gram minimum length,
         // Winnowing cannot produce valid fingerprints, skip directly to L2 LCS.

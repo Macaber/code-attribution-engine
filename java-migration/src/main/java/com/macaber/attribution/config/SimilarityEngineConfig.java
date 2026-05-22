@@ -8,12 +8,11 @@ import org.springframework.context.annotation.Configuration;
 public class SimilarityEngineConfig {
 
     @Bean
-    public SimilarityEngine similarityEngine() {
+    public SimilarityEngine similarityEngine(PipelineConfig pipelineConfig) {
         // Initialize with default configurations
         SimilarityWeights weights = new SimilarityWeights();
         WinnowingConfig winnowingConfig = new WinnowingConfig();
         LcsConfig lcsConfig = new LcsConfig();
-        PipelineConfig pipelineConfig = new PipelineConfig();
         
         // If we want to use AST, we need to inject or create AstFeatureEngine
         // For simplicity, we initialize it without grammar configs if native lib is present

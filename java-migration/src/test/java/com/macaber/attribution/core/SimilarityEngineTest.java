@@ -147,4 +147,49 @@ class SimilarityEngineTest {
         assertNotEquals(MatchType.NONE, result.getMatchType());
         assertTrue(result.getScore() > 0);
     }
+
+    @Test
+    void testEvaluateChunk_TrivialLineFilter() {
+        PipelineConfig config = new PipelineConfig();
+        // Enable filter and configure trivial lines
+        config.getL2().setFilterTrivialEnabled(true);
+        config.getL2().setTrivialLines(java.util.Arrays.asList("{", "}", "<div>"));
+        
+        SimilarityEngine customEngine = new SimilarityEngine(null, null, null, config, null);
+
+        // Scenario 1: Chunk analyzed lines > 1, matches exactly 1 line which is "{" (trivial)
+        // Short texts bypass L1 to prevent L1 fast-fail.
+        String aiCode = "{\n  y";
+        String userCode = "{\n  x";
+        
+        EvaluationResult result1 = customEngine.evaluateChunk(aiCode, userCode, null);
+        assertEquals(MatchType.NONE, result1.getMatchType());
+        assertEquals(0, result1.getExactContributedLines());
+        
+        // Scenario 2: Same scenario, but filter is disabled
+        config.getL2().setFilterTrivialEnabled(false);
+        EvaluationResult result2 = customEngine.evaluateChunk(aiCode, userCode, null);
+        assertNotEquals(MatchType.NONE, result2.getMatchType());
+        assertEquals(1, result2.getExactContributedLines()); // matches "{"
+        
+        // Scenario 3: Filter enabled, chunk has only 1 line, matches "{"
+        config.getL2().setFilterTrivialEnabled(true);
+        EvaluationResult result3 = customEngine.evaluateChunk("{\n  y", "{", null);
+        assertNotEquals(MatchType.NONE, result3.getMatchType());
+        assertEquals(1, result3.getExactContributedLines());
+        
+        // Scenario 4: Filter enabled, chunk analyzed lines > 1, matches exactly 1 line which is NOT trivial (e.g. "a")
+        String aiCode4 = "a\n  y";
+        String userCode4 = "a\n  x";
+        EvaluationResult result4 = customEngine.evaluateChunk(aiCode4, userCode4, null);
+        assertNotEquals(MatchType.NONE, result4.getMatchType());
+        assertEquals(1, result4.getExactContributedLines());
+        
+        // Scenario 5: Filter enabled, chunk analyzed lines > 1, matches 2 trivial lines ("{" and "}")
+        String aiCode5 = "{\n  }\n  y";
+        String userCode5 = "{\n  }\n  x";
+        EvaluationResult result5 = customEngine.evaluateChunk(aiCode5, userCode5, null);
+        assertNotEquals(MatchType.NONE, result5.getMatchType());
+        assertEquals(2, result5.getExactContributedLines());
+    }
 }
