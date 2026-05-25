@@ -5,3 +5,6 @@ coverage/
 *.logs
 .DS_Store
 java-migration/target/
+.claude/
+.cursor
+.idea/

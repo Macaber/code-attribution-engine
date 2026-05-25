@@ -64,6 +64,7 @@ public class AttributionWorker {
     private final DiffParser diffParser = new DiffParser();
     private final Normalizer normalizer = new Normalizer();
     private final PipelineConfig pipelineConfig;
+    private final AttributionFilter attributionFilter;
 
     private static final String QUEUE_NAME = "attribution-queue";
     private ExecutorService executorService;
@@ -176,6 +177,11 @@ public class AttributionWorker {
         // ── Step 1: Parse diffs and enrich chunks with file context ──
         for (var file : jobData.getFileDetails()) {
             if (file.getDiff() == null || file.getDiff().trim().isEmpty()) continue;
+
+            if (attributionFilter.shouldFilter(file)) {
+                log.info("[Worker] File {} skipped by filtering rules", file.getPath());
+                continue;
+            }
 
             List<DiffChunk> chunks = diffParser.parse(file.getDiff());
             // Count total added lines in this file

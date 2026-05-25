@@ -80,5 +80,29 @@ public class PipelineConfig {
     @Value("${attribution.l2.filter-trivial.lines:{,}}")
     private List<String> trivialLines = java.util.Arrays.asList("{", "}");
 
+    @Value("${attribution.filter.enabled:true}")
+    private boolean filterEnabled = true;
+
+    @Value("${attribution.filter.exclude-extensions:log,txt,png,jpg,jpeg,gif,pdf,zip,tar,gz,exe,dll,so,bin,woff,ttf,class,jar,lock,md,csv,tsv,xlsx}")
+    private List<String> excludeExtensions = java.util.Arrays.asList(
+            "log", "txt", "png", "jpg", "jpeg", "gif", "pdf", "zip", "tar", "gz", "exe", "dll", "so",
+            "bin", "woff", "ttf", "class", "jar", "lock", "md", "csv", "tsv", "xlsx"
+    );
+
+    @Value("${attribution.filter.max-file-size-kb:500}")
+    private int maxFileSizeKb = 500;
+
+    @Value("${attribution.filter.max-diff-size-kb:100}")
+    private int maxDiffSizeKb = 100;
+
+    @Value("${attribution.filter.max-file-lines:5000}")
+    private int maxFileLines = 5000;
+
+    @Value("${attribution.filter.filter-binary:true}")
+    private boolean filterBinary = true;
+
+    @Value("${attribution.filter.filter-logs:true}")
+    private boolean filterLogs = true;
+
 }
 
