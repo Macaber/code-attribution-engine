@@ -1,7 +1,0 @@
-com/macaber/attribution/core/DiffParserTest.class
-com/macaber/attribution/controller/ReportControllerTest.class
-com/macaber/attribution/core/NormalizerTest.class
-com/macaber/attribution/core/AttributionFilterTest.class
-com/macaber/attribution/core/SimilarityEngineTest.class
-com/macaber/attribution/core/WinnowingTest.class
-com/macaber/attribution/core/LcsTest.class
