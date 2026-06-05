@@ -1,0 +1,4 @@
+-------------------------------------------------------------------------------
+Test set: com.macaber.attribution.controller.ReportControllerTest
+-------------------------------------------------------------------------------
+Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 1.634 s -- in com.macaber.attribution.controller.ReportControllerTest

@@ -3,7 +3,7 @@ version: '3.8'
 services:
   # --- Code Attribution Engine ---
   app:
-    image: code:v1
+    build: .
     container_name: code-attribution-engine
     ports:
       - "3000:3000"
@@ -47,7 +47,7 @@ services:
       MYSQL_DATABASE: code_attribution
     volumes:
       - mysql_data:/var/lib/mysql
-      - ./src/core/database/migrations:/docker-entrypoint-initdb.d:ro
+      - ./src/main/resources/migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 5s
