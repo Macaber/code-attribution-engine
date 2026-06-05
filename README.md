@@ -6,14 +6,15 @@
 
 ## 🏗️ 系统架构与技术选型 (Architecture & Tech Stack)
 
-* **语言**: TypeScript (Node.js) - 严格模式 (`"strict": true`)
-* **框架**: Express（模块化路由）
-* **队列**: BullMQ + Redis（用于解耦 Webhook 接收与高 CPU 消耗的代码比对任务）
-* **AST 解析**: `web-tree-sitter` (WASM 版本，跨平台兼容，无 Node-GYP 编译依赖)
+* **语言**: Java 17
+* **框架**: Spring Boot 3.2.4 + Spring Web
+* **ORM / 数据库**: MyBatis-Plus 3.5.5 + MySQL 8.0
+* **队列 & 缓存**: Redisson 3.27.2 + Redis 7 (基于 Redisson 阻塞双端队列 `RBlockingDeque` 进行异步任务调度)
+* **AST 解析**: `io.github.bonede:tree-sitter` (JNI 本地绑定版，高性能语法分析)
 * **核心依赖**:
-  * `parse-diff`: 解析 Git Diff 数据
-  * `web-tree-sitter`: 将代码解析为 AST，提取语义特征
-  * `tree-sitter-wasms`: 预编译的语法文件 (.wasm)
+  * `bonede:tree-sitter-java / javascript / typescript`: 预编译的 JNI 语法解析器
+  * `lombok`: 简化实体与 DTO 开发
+  * `jackson`: JSON 解析与对象转换
 
 ---
 
@@ -173,14 +174,14 @@ $$\text{AI 贡献行数} = \sum \text{Union}(\text{各贡献消息的 contribute
 ## 🏃 快速开始 (Quick Start)
 
 ```bash
-# 安装依赖 (WASM 语法文件会自动随 tree-sitter-wasms 包安装)
-npm install
+# 本地编译与构建 (跳过测试)
+mvn clean package -DskipTests
 
-# 运行测试
-npm test
+# 运行所有单元测试
+mvn clean test
 
-# 启动开发服务 (需要 Redis)
-npm run dev
+# 启动 Spring Boot 本地开发服务
+mvn spring-boot:run
 ```
 
 ### 环境变量
@@ -203,44 +204,28 @@ npm run dev
 ## 📂 工程目录结构 (Directory Structure)
 
 ```text
-src/
-├── route/                           # REST API 路由与接入层
-│   ├── webhook.route.ts             # POST /api/coding/doMerge 核心 Webhook
-│   └── report.route.ts              # GET /api/reports 归因报告查询接口
-├── core/
-│   ├── queue/                       # BullMQ 队列配置与生产者/消费者
-│   │   ├── queue.config.ts          # Redis 连接 & 队列选项
-│   │   ├── queue.producer.ts        # 任务入队
-│   │   └── queue.consumer.ts        # 任务出队 & 调度 Worker + MySQL 持久化
-│   ├── database/                    # MySQL 持久化层
-│   │   ├── database.config.ts       # 连接池配置 (mysql2/promise)
-│   │   ├── report.service.ts        # 报告查询、写入与管理
-│   │   └── migrations/
-│   │       └── 001_attribution_tables.sql  # 建表 DDL (归因主表与明细2张表)
-│   └── cache/
-│       └── lru-cache.ts             # LRU 缓存 (AST 解析复用, 50 条/5 分钟 TTL)
-├── domains/
-│   └── attribution/                 # 👉 核心算法层
-│       ├── normalizer.ts            # 预处理: 忽略空白/大小写, 保留注释
-│       ├── diff-parser.ts           # Git Diff 解析 → DiffChunk[]
-│       ├── similarity-engine.ts     # 三层漏斗管线 (L1→L2→L3)
-│       ├── attribution.worker.ts    # 管线编排器 (async, 文件上下文传递)
-│       └── algorithms/
-│           ├── winnowing.ts         # L1: 文档指纹 (K-gram Hash)
-│           ├── lcs.ts               # L2: 最长公共子序列 (DP 行级溯源)
-│           ├── ast-engine.ts        # L3: Tree-sitter AST 特征提取 + Jaccard
-│           ├── language-map.ts      # 文件扩展名 → Grammar 映射
-│           └── grammars/            # Tree-sitter .wasm 语法文件
-│               ├── tree-sitter-typescript.wasm
-│               ├── tree-sitter-java.wasm
-│               ├── tree-sitter-javascript.wasm
-│               ├── tree-sitter-python.wasm
-│               ├── tree-sitter-go.wasm
-│               └── tree-sitter-*.wasm
-├── types/
-│   └── index.ts                     # 全局 TS 接口与类型定义
-├── app.ts                           # Express 应用路由挂载与配置
-└── main.ts                          # 依赖注入入口 & 优雅关闭
+src/main/
+├── java/com/macaber/attribution/
+│   ├── config/                     # 配置层 (SimilarityEngine, MyBatis-Plus, Web)
+│   ├── controller/                 # Web 接口控制层 (Webhook, Reports 报表)
+│   ├── dao/                        # 数据库访问层 (MyBatis-Plus Mapper)
+│   ├── dto/                        # 数据传输对象 (Payload, DTO, JobData)
+│   ├── entity/                     # 数据库映射实体 (Result, ChunkDetail)
+│   ├── service/                    # 业务逻辑接口及实现类 (Service & ServiceImpl)
+│   ├── util/                       # 工具类 (LRU Cache 等)
+│   ├── core/                       # 👉 核心归因 analysis 管线与算法实现
+│   │   ├── queue/                  # Redisson 队列生产者/消费者
+│   │   ├── AstFeatureEngine.java   # L3 AST 语法分析引擎 (Tree-sitter)
+│   │   ├── LCS.java                # L2 最长公共子序列算法
+│   │   ├── Winnowing.java          # L1 指纹过滤算法
+│   │   ├── Normalizer.java         # 文本规格化预处理器
+│   │   ├── DiffParser.java         # Unified Diff 解析器
+│   │   ├── SimilarityEngine.java   # 并联管线核心控制引擎
+│   │   └── AttributionFilter.java  # 大文件与二进制过滤层
+│   └── AttributionEngineApplication.java # Spring Boot 启动入口
+└── resources/
+    ├── application.properties      # 系统核心配置文件
+    └── migrations/                 # 数据库初始化与升级 SQL 脚本
 ```
 
 ## 🧪 测试 (Tests)
