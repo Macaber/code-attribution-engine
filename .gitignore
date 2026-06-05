@@ -8,3 +8,4 @@ java-migration/target/
 .claude/
 .cursor
 .idea/
+.qoder/

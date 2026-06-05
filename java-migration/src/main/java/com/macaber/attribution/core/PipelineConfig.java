@@ -83,10 +83,10 @@ public class PipelineConfig {
     @Value("${attribution.filter.enabled:true}")
     private boolean filterEnabled = true;
 
-    @Value("${attribution.filter.exclude-extensions:log,txt,png,jpg,jpeg,gif,pdf,zip,tar,gz,exe,dll,so,bin,woff,ttf,class,jar,lock,md,csv,tsv,xlsx}")
+    @Value("${attribution.filter.exclude-extensions:log,txt,png,jpg,jpeg,gif,pdf,zip,tar,gz,exe,dll,so,bin,woff,ttf,class,jar,lock,csv,tsv,xlsx}")
     private List<String> excludeExtensions = java.util.Arrays.asList(
             "log", "txt", "png", "jpg", "jpeg", "gif", "pdf", "zip", "tar", "gz", "exe", "dll", "so",
-            "bin", "woff", "ttf", "class", "jar", "lock", "md", "csv", "tsv", "xlsx"
+            "bin", "woff", "ttf", "class", "jar", "lock", "csv", "tsv", "xlsx"
     );
 
     @Value("${attribution.filter.max-file-size-kb:500}")

@@ -192,4 +192,41 @@ class SimilarityEngineTest {
         assertNotEquals(MatchType.NONE, result5.getMatchType());
         assertEquals(2, result5.getExactContributedLines());
     }
+
+    @Test
+    void testEvaluateChunk_Concurrency_DoesNotDeadlockOrHang() throws Exception {
+        PipelineConfig config = new PipelineConfig();
+        SimilarityEngine customEngine = new SimilarityEngine(null, null, null, config, new AstFeatureEngine());
+
+        int threadCount = 10;
+        int tasksPerThread = 50;
+        java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newFixedThreadPool(threadCount);
+        java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(threadCount * tasksPerThread);
+
+        String aiCode = "public class A {\n    public void test() {\n        System.out.println(\"test\");\n    }\n}";
+        String userCode = "public class A {\n    public void test() {\n        System.out.println(\"test\");\n    }\n}";
+
+        SimilarityEngine.EvaluationContext context = SimilarityEngine.EvaluationContext.builder()
+                .addedLineCount(5)
+                .filePath("A.java")
+                .fileContent(userCode)
+                .build();
+
+        for (int i = 0; i < threadCount * tasksPerThread; i++) {
+            executor.submit(() -> {
+                try {
+                    EvaluationResult result = customEngine.evaluateChunk(aiCode, userCode, context);
+                    assertNotNull(result);
+                } finally {
+                    latch.countDown();
+                }
+            });
+        }
+
+        boolean finished = latch.await(5, java.util.concurrent.TimeUnit.SECONDS);
+        executor.shutdownNow();
+
+        assertTrue(finished, "Test timed out, concurrency deadlock or infinite loop detected!");
+    }
 }
+

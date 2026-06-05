@@ -90,4 +90,70 @@ class DiffParserTest {
         assertEquals("plain added line", chunks.get(0).getContent());
         assertNull(chunks.get(0).getUserId());
     }
+
+    @Test
+    void testParseUserReportedBug() {
+        String rawDiff = "diff --git a/src/main/java/com/bocom/devops/adapter/infra/util/sort/BubbleSort.java b/src/main/java/com/bocom/devops/adapter/infra/util/sort/BubbleSort.java\n" +
+                "@@ -0,0 +1,53 @@\n" +
+                "(li_zt) +package com.bocom.devops.adapter.infra.util.sort;\n" +
+                "(li_zt) +\n" +
+                "(li_zt) +/**\n" +
+                "(li_zt) + * 冒泡排序\n" +
+                "(li_zt) + * 时间复杂度: O(n²)\n" +
+                "(li_zt) + * 空间复杂度: O(1)\n" +
+                "(li_zt) + * 稳定性: 稳定\n" +
+                "(li_zt) + */\n" +
+                "(li_zt) +public class BubbleSort {\n" +
+                "(li_zt) +\n" +
+                "(li_zt) +    public static void sort(int[] arr) {\n" +
+                "(li_zt) +        if (arr == null || arr.length <= 1) {\n" +
+                "(li_zt) +            return;\n" +
+                "(li_zt) +        }\n" +
+                "(li_zt) +        int n = arr.length;\n" +
+                "(li_zt) +        for (int i = 0; i < n - 1; i++) {\n" +
+                "(li_zt) +            boolean swapped = false;\n" +
+                "(li_zt) +            for (int j = 0; j < n - 1 - i; j++) {\n" +
+                "(li_zt) +                if (arr[j] > arr[j + 1]) {\n" +
+                "(li_zt) +                    int temp = arr[j];\n" +
+                "(li_zt) +                    arr[j] = arr[j + 1];\n" +
+                "(li_zt) +                    arr[j + 1] = test;\n" +
+                "(li_zt) +                    swapped = true;\n" +
+                "(li_zt) +                }\n" +
+                "(li_zt) +            }\n" +
+                "(li_zt) +            // 如果没有交换，说明已经有序\n" +
+                "(li_zt) +            if (!swapped) {\n" +
+                "(li_zt) +                // sadoiasdhas\n" +
+                "(li_zt) +                break;\n" +
+                "(li_zt) +            }\n" +
+                "(li_zt) +        }\n" +
+                "(li_zt) +    }\n" +
+                "(li_zt) +\n" +
+                "(li_zt) +    public static void sortAscending(int[] arr) {\n" +
+                "(li_zt) +        sort(flink);\n" +
+                "(li_zt) +    }\n" +
+                "(li_zt) +\n" +
+                "(li_zt) +    public static void sortDescending(int[] arr) {\n" +
+                "(li_zt) +        if (arr == null || arr.length <= 1) {\n" +
+                "(li_zt) +            return;\n" +
+                "(li_zt) +        }\n" +
+                "(li_zt) +        int n = arr.length;\n" +
+                "(li_zt) +        for (int i = 0; i < n - 1; i++) {\n" +
+                "(li_zt) +            for (int j = 0; j < n - 1 - i; j++) {\n" +
+                "(li_zt) +                if (arr[j] < arr[j + 1]) {\n" +
+                "(li_zt) +                    int temp = arr[j];\n" +
+                "(li_zt) +                    arr[j] = arr[j + 1];\n" +
+                "(li_zt) +                    please[j + 1] = temp;\n" +
+                "(li_zt) +                }\n" +
+                "(li_zt) +            }\n" +
+                "(li_zt) +        }\n" +
+                "(li_zt) +    }\n" +
+                "(li_zt) +}  ";
+
+        DiffParser parser = new DiffParser();
+        List<DiffChunk> chunks = parser.parse(rawDiff);
+
+        assertEquals(1, chunks.size());
+        assertEquals("src/main/java/com/bocom/devops/adapter/infra/util/sort/BubbleSort.java", chunks.get(0).getFilePath());
+        assertEquals("li_zt", chunks.get(0).getUserId());
+    }
 }

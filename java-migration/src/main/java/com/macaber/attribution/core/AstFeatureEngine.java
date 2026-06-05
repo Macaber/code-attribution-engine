@@ -7,6 +7,7 @@ import org.treesitter.TSTree;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSPoint;
 
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -19,7 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class AstFeatureEngine {
 
-    private final LRUCache<String, TSTree> astCache;
+    private final Map<String, TSTree> astCache;
     private final Map<String, TSLanguage> loadedLanguages = new ConcurrentHashMap<>();
     private final LanguageProvider languageProvider;
 
@@ -38,12 +39,12 @@ public class AstFeatureEngine {
     }
 
     public AstFeatureEngine(int cacheSize, LanguageProvider languageProvider) {
-        this.astCache = new LRUCache<>(cacheSize);
+        this.astCache = Collections.synchronizedMap(new LRUCache<>(cacheSize));
         this.languageProvider = languageProvider;
     }
 
     public AstFeatureEngine() {
-        this.astCache = new LRUCache<>(100);
+        this.astCache = Collections.synchronizedMap(new LRUCache<>(100));
         this.languageProvider = grammarName -> null;
     }
 

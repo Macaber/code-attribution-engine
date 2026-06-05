@@ -24,7 +24,7 @@ public class DiffParser {
      * Matches lines like: (sun_yunfeng)+added code
      * Group 1 = username, Group 2 = +/- operator, Group 3 = line content
      */
-    private static final Pattern USER_LINE_PATTERN = Pattern.compile("^\\(([^)]+)\\)([+-])(.*)$");
+    private static final Pattern USER_LINE_PATTERN = Pattern.compile("^\\(([^)]+)\\)\\s*([+-])(.*)$");
 
     public List<DiffChunk> parse(String rawDiff) {
         List<DiffChunk> chunks = new ArrayList<>();
@@ -43,7 +43,26 @@ public class DiffParser {
         String currentUserId = null;
 
         for (String line : lines) {
-            if (line.startsWith("+++ ")) {
+            if (line.startsWith("diff --git ")) {
+                flushChunk(chunks, currentFilePath, startLine, currentLineNumber - 1, currentChunkLines, currentUserId);
+                currentChunkLines.clear();
+                startLine = null;
+                currentUserId = null;
+                inHunk = false;
+
+                int bIndex = line.lastIndexOf(" b/");
+                if (bIndex != -1) {
+                    currentFilePath = line.substring(bIndex + 3).trim();
+                } else {
+                    int aIndex = line.lastIndexOf(" a/");
+                    if (aIndex != -1) {
+                        currentFilePath = line.substring(aIndex + 3).trim();
+                    }
+                }
+                if (currentFilePath.startsWith("\"") && currentFilePath.endsWith("\"")) {
+                    currentFilePath = currentFilePath.substring(1, currentFilePath.length() - 1);
+                }
+            } else if (line.startsWith("+++ ")) {
                 flushChunk(chunks, currentFilePath, startLine, currentLineNumber - 1, currentChunkLines, currentUserId);
                 currentChunkLines.clear();
                 startLine = null;

@@ -20,7 +20,7 @@ class AttributionFilterTest {
         pipelineConfig.setFilterEnabled(true);
         pipelineConfig.setExcludeExtensions(Arrays.asList(
                 "log", "txt", "png", "jpg", "jpeg", "gif", "pdf", "zip", "tar", "gz", "exe", "dll", "so",
-                "bin", "woff", "ttf", "class", "jar", "lock", "md", "csv", "tsv", "xlsx"
+                "bin", "woff", "ttf", "class", "jar", "lock", "csv", "tsv", "xlsx"
         ));
         pipelineConfig.setMaxFileSizeKb(500);
         pipelineConfig.setMaxDiffSizeKb(100);
@@ -37,6 +37,16 @@ class AttributionFilterTest {
         file.setPath("src/main/java/com/macaber/attribution/core/SimilarityEngine.java");
         file.setCode("package com.macaber.attribution.core;\n\npublic class SimilarityEngine {\n}");
         file.setDiff("@@ -1,3 +1,3 @@\n+public class SimilarityEngine {\n}");
+
+        assertFalse(filter.shouldFilter(file));
+    }
+
+    @Test
+    void testShouldNotFilter_MarkdownFile() {
+        MergeFileDetail file = new MergeFileDetail();
+        file.setPath("AGENT.md");
+        file.setCode("# CodeGraph\nThis project is cool.");
+        file.setDiff("@@ -1,2 +1,3 @@\n # CodeGraph\n+This project is cool.");
 
         assertFalse(filter.shouldFilter(file));
     }

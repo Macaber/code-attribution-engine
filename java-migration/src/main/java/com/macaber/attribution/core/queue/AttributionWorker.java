@@ -17,10 +17,8 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.redisson.api.RBlockingDeque;
 import org.redisson.api.RBlockingQueue;
-import org.redisson.api.RRateLimiter;
-import org.redisson.api.RateIntervalUnit;
-import org.redisson.api.RateType;
 import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -73,38 +71,14 @@ public class AttributionWorker {
     @Value("${attribution.worker.threads:2}")
     private int threadCount;
 
-    @Value("${attribution.worker.rate-limiter.enabled:false}")
-    private boolean rateLimiterEnabled;
-
-    @Value("${attribution.worker.rate-limiter.rate:10}")
-    private long rateLimit;
-
-    @Value("${attribution.worker.rate-limiter.interval-seconds:60}")
-    private long rateIntervalSeconds;
-
     @Value("${attribution.worker.ai-message.limit:1000}")
     private int aiMessageLimit;
 
     @Value("${attribution.worker.ai-message.timeframe-days:30}")
     private int aiMessageTimeframeDays;
 
-    private RRateLimiter rateLimiter;
-
     @PostConstruct
     public void init() {
-        if (rateLimiterEnabled) {
-            try {
-                rateLimiter = redissonClient.getRateLimiter("attribution-rate-limiter");
-                // Set rate limit if not already set
-                rateLimiter.trySetRate(RateType.OVERALL, rateLimit, rateIntervalSeconds, RateIntervalUnit.SECONDS);
-                log.info("[Worker] Rate limiter enabled: {} tasks per {} seconds", rateLimit, rateIntervalSeconds);
-            } catch (Exception e) {
-                log.error("[Worker] Failed to initialize Redisson RateLimiter. Rate limiting will be DISABLED. Error: {}", e.getMessage(), e);
-                rateLimiterEnabled = false;
-                rateLimiter = null;
-            }
-        }
-
         executorService = Executors.newFixedThreadPool(threadCount, new CustomizableThreadFactory("attribution-worker-"));
         for (int i = 0; i < threadCount; i++) {
             executorService.submit(this::processQueue);
@@ -113,28 +87,46 @@ public class AttributionWorker {
     }
 
     private void processQueue() {
-        RBlockingQueue<AttributionJobData> queue = redissonClient.getBlockingQueue(QUEUE_NAME);
+        RBlockingDeque<AttributionJobData> queue = redissonClient.getBlockingDeque(QUEUE_NAME);
         while (isRunning) {
+            AttributionJobData jobData = null;
             try {
                 // Blocks until a job is available
-                AttributionJobData jobData = queue.poll(1, TimeUnit.SECONDS);
+                jobData = queue.poll(1, TimeUnit.SECONDS);
                 if (jobData != null) {
-                    if (rateLimiterEnabled && rateLimiter != null) {
-                        // Blocks until a rate limit token is available
-                        rateLimiter.acquire(1);
-                    }
                     try {
                         processJob(jobData);
                     } catch (Exception ex) {
                         handleFailedJob(jobData, ex);
                     }
+                    // Reset reference since job has been processed/handled
+                    jobData = null;
                 }
             } catch (InterruptedException e) {
+                if (jobData != null) {
+                    try {
+                        // Put the in-flight job back to the front of the queue to prevent job loss
+                        queue.addFirst(jobData);
+                        log.info("[Worker] Rolled back in-flight job to Redis queue for mergeId: {}", jobData.getMergeId());
+                    } catch (Exception ex) {
+                        log.error("[Worker] Failed to roll back job to Redis queue for mergeId: {}", jobData.getMergeId(), ex);
+                        handleFailedJob(jobData, new Exception("Job lost due to thread interrupt/shutdown", e));
+                    }
+                }
                 Thread.currentThread().interrupt();
                 log.info("[Worker] AttributionWorker thread interrupted");
                 break;
             } catch (Exception e) {
-                if (Thread.currentThread().isInterrupted()) {
+                if (Thread.currentThread().isInterrupted() || e.getCause() instanceof InterruptedException) {
+                    if (jobData != null) {
+                        try {
+                            queue.addFirst(jobData);
+                            log.info("[Worker] Rolled back in-flight job to Redis queue for mergeId: {}", jobData.getMergeId());
+                        } catch (Exception ex) {
+                            log.error("[Worker] Failed to roll back job to Redis queue for mergeId: {}", jobData.getMergeId(), ex);
+                            handleFailedJob(jobData, e);
+                        }
+                    }
                     log.info("[Worker] AttributionWorker thread interrupted during exception");
                     break;
                 }
@@ -223,13 +215,20 @@ public class AttributionWorker {
         List<NormalizedAiMessage> normalizedMessages = normalizeMessages(aiMessages);
 
         // ── Step 3: Run pipeline for each chunk ──
+        log.info("[Worker] Job {} — Starting pipeline processing for {} chunks", jobData.getMergeId(), enrichedChunks.size());
         List<MatchResult> results = new ArrayList<>();
+        int processedCount = 0;
         for (EnrichedChunk chunk : enrichedChunks) {
             MatchResult result = processChunk(chunk, normalizedMessages);
             results.add(result);
+            processedCount++;
+            if (processedCount % 5 == 0 || processedCount == enrichedChunks.size()) {
+                log.info("[Worker] Job {} — Processed {}/{} chunks", jobData.getMergeId(), processedCount, enrichedChunks.size());
+            }
         }
 
         // ── Step 4: Summarize and Save to DB ──
+        log.info("[Worker] Job {} — Saving summary and details to database...", jobData.getMergeId());
         long elapsedMs = System.currentTimeMillis() - startTime;
         saveSummary(results, jobData, elapsedMs);
     }
@@ -603,9 +602,21 @@ public class AttributionWorker {
     @PreDestroy
     public void destroy() {
         isRunning = false;
+        log.info("[Worker] Shutting down AttributionWorker gracefully...");
         if (executorService != null) {
-            executorService.shutdownNow();
+            executorService.shutdown();
+            try {
+                if (!executorService.awaitTermination(10, TimeUnit.SECONDS)) {
+                    log.warn("[Worker] ExecutorService did not terminate gracefully in 10s, forcing shutdown...");
+                    executorService.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                log.warn("[Worker] Graceful shutdown interrupted, forcing shutdown...");
+                executorService.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
         }
+        log.info("[Worker] AttributionWorker graceful shutdown completed.");
     }
 
     // ── Internal helper classes ──
