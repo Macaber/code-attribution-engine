@@ -8,6 +8,7 @@ import com.macaber.attribution.entity.AttributionResult;
 import com.macaber.attribution.service.AttributionChunkDetailService;
 import com.macaber.attribution.service.AttributionResultService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -20,6 +21,7 @@ import java.util.stream.Collectors;
  *
  * Aligned with Node.js routes/api definition in api.md
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/reports")
 @RequiredArgsConstructor
@@ -43,6 +45,8 @@ public class ReportController {
             @RequestParam(value = "endDate", required = false) String endDate,
             @RequestParam(value = "sortBy", defaultValue = "created_at") String sortBy,
             @RequestParam(value = "sortOrder", defaultValue = "desc") String sortOrder) {
+        log.info("[ReportController] getReports — page: {}, pageSize: {}, userId: {}, repoName: {}, sysCode: {}, startDate: {}, endDate: {}, sortBy: {}, sortOrder: {}",
+                page, pageSize, userId, repoName, sysCode, startDate, endDate, sortBy, sortOrder);
 
         // Validate max page size
         if (pageSize > 100) {
@@ -112,6 +116,8 @@ public class ReportController {
             @RequestParam(value = "sysCode", required = false) String sysCode,
             @RequestParam(value = "startDate", required = false) String startDate,
             @RequestParam(value = "endDate", required = false) String endDate) {
+        log.info("[ReportController] getStatsSummary — userId: {}, repoName: {}, sysCode: {}, startDate: {}, endDate: {}",
+                userId, repoName, sysCode, startDate, endDate);
 
         QueryWrapper<AttributionResult> queryWrapper = new QueryWrapper<>();
 
@@ -197,6 +203,7 @@ public class ReportController {
      */
     @GetMapping("/{mergeId}")
     public ResponseEntity<?> getReportByMergeId(@PathVariable("mergeId") String mergeId) {
+        log.info("[ReportController] getReportByMergeId — mergeId: {}", mergeId);
         if (mergeId == null || mergeId.trim().isEmpty()) {
             return ResponseEntity.badRequest().body(Map.of("error", "mergeId is required"));
         }

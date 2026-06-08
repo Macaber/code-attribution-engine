@@ -138,17 +138,14 @@ public class AttributionWorker {
     private void handleFailedJob(AttributionJobData jobData, Exception ex) {
         log.error("[Worker] Job failed for mergeId: {}", jobData.getMergeId(), ex);
         try {
-            java.io.StringWriter sw = new java.io.StringWriter();
-            ex.printStackTrace(new java.io.PrintWriter(sw));
-            
             String jobDataJson = objectMapper.writeValueAsString(jobData);
             AttributionFailedJob failedJob = AttributionFailedJob.builder()
                     .mergeId(jobData.getMergeId())
                     .repoName(jobData.getRepoName())
                     .userId(jobData.getUserId())
                     .jobData(jobDataJson)
-                    .errorMessage(ex.getMessage())
-                    .errorStack(sw.toString())
+                    .errorMessage(simplifyErrorMessage(ex))
+                    .errorStack(simplifyErrorStack(ex))
                     .attemptCount(1)
                     .status("pending")
                     .createdAt(LocalDateTime.now())
@@ -159,6 +156,68 @@ public class AttributionWorker {
             log.error("[Worker] Failed to save error record for mergeId: {}", jobData.getMergeId(), e);
         }
     }
+
+    String simplifyErrorMessage(Throwable t) {
+        if (t == null) {
+            return "";
+        }
+        Throwable root = t;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        String mainMsg = t.getClass().getSimpleName() + ": " + t.getMessage();
+        if (t != root) {
+            return mainMsg + " [Root Cause: " + root.getClass().getSimpleName() + ": " + root.getMessage() + "]";
+        }
+        return mainMsg;
+    }
+
+    String simplifyErrorStack(Throwable t) {
+        if (t == null) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        Set<Throwable> visited = new HashSet<>();
+        buildSimplifiedStack(t, sb, false, visited);
+        return sb.toString();
+    }
+
+    private void buildSimplifiedStack(Throwable t, StringBuilder sb, boolean isCause, Set<Throwable> visited) {
+        if (!visited.add(t)) {
+            sb.append("\n[Circular reference detected]");
+            return;
+        }
+        if (isCause) {
+            sb.append("\nCaused by: ");
+        }
+        sb.append(t.getClass().getName()).append(": ").append(t.getMessage()).append("\n");
+
+        StackTraceElement[] trace = t.getStackTrace();
+        int frameCount = 0;
+        int maxTopFrames = 8;
+
+        for (int i = 0; i < trace.length; i++) {
+            StackTraceElement element = trace[i];
+            String className = element.getClassName();
+            boolean isProjectFrame = className.startsWith("com.macaber.");
+            boolean isTopFrame = i < maxTopFrames;
+
+            if (isProjectFrame || isTopFrame) {
+                sb.append("\tat ").append(element.toString()).append("\n");
+                frameCount++;
+            }
+        }
+
+        if (trace.length > frameCount) {
+            sb.append("\t... ").append(trace.length - frameCount).append(" more framework/internal frames truncated\n");
+        }
+
+        Throwable cause = t.getCause();
+        if (cause != null) {
+            buildSimplifiedStack(cause, sb, true, visited);
+        }
+    }
+
 
     private void processJob(AttributionJobData jobData) {
         long startTime = System.currentTimeMillis();
