@@ -9,7 +9,7 @@ class AttributionWorkerTest {
 
     @Test
     void testSimplifyErrorMessage() {
-        AttributionWorker worker = new AttributionWorker(null, null, null, null, null, null, null, null, null);
+        AttributionWorker worker = new AttributionWorker(null, null, null, null, null, null, null, null);
 
         // Test null
         assertEquals("", worker.simplifyErrorMessage(null));
@@ -26,7 +26,7 @@ class AttributionWorkerTest {
 
     @Test
     void testSimplifyErrorStack() {
-        AttributionWorker worker = new AttributionWorker(null, null, null, null, null, null, null, null, null);
+        AttributionWorker worker = new AttributionWorker(null, null, null, null, null, null, null, null);
 
         // Test null
         assertEquals("", worker.simplifyErrorStack(null));

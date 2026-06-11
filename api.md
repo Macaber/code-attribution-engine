@@ -354,3 +354,29 @@ GET /api/reports/MR-20260427-001
   "error": "Internal server error"
 }
 ```
+
+---
+
+## 失败任务表数据说明 (Failed Jobs Database Schema)
+
+当归因任务失败时，数据会被写入 `attribution_failed_jobs` 表。表结构及字段意义如下：
+
+| 字段名 | 类型 | 说明 |
+|---|---|---|
+| `id` | BIGINT | 主键自增 |
+| `job_id` | VARCHAR(128) | 任务 ID (选填) |
+| `merge_id` | VARCHAR(128) | 合并请求 ID (唯一关联键) |
+| `repo_name` | VARCHAR(256) | 仓库名称 |
+| `user_id` | VARCHAR(128) | 操作员账号 (oa) |
+| `job_data` | JSON | 完整原始任务 Payload (用于重入队) |
+| `error_message` | TEXT | 精简后的错误类名及主要异常信息 |
+| `error_stack` | TEXT | 精简后的异常堆栈 (仅包含 top 帧和业务代码帧) |
+| `attempt_count` | INT | 已尝试运行次数 (默认为 1) |
+| `status` | ENUM | `'pending'`（待处理）、`'retrying'`（重试中）、`'resolved'`（已解决）、`'abandoned'`（已放弃） |
+| `created_at` | TIMESTAMP | 首次失败记录时间 |
+| `updated_at` | TIMESTAMP | 最新修改时间 |
+
+### 任务手动/自动重试逻辑
+1. **自动即时重试**：如果是因为线程中断（优雅停机），任务不会进入此表，而是立刻在内存级别被重新推入 Redis 队列头部。
+2. **持久化错误重试**：写入此表的 `pending` 状态任务代表持久化业务失败。运维人员或后台定时脚本可以通过读取此表的 `job_data` 列，将其重新推送到 Redis 的 `attribution-queue` 双端队列完成重试。
+

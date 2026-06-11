@@ -18,7 +18,6 @@ import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RBlockingDeque;
-import org.redisson.api.RBlockingQueue;
 import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -26,7 +25,6 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.springframework.scheduling.concurrent.CustomizableThreadFactory;
@@ -62,7 +60,6 @@ public class AttributionWorker {
     private final DiffParser diffParser = new DiffParser();
     private final Normalizer normalizer = new Normalizer();
     private final PipelineConfig pipelineConfig;
-    private final AttributionFilter attributionFilter;
 
     private static final String QUEUE_NAME = "attribution-queue";
     private ExecutorService executorService;
@@ -79,7 +76,14 @@ public class AttributionWorker {
 
     @PostConstruct
     public void init() {
-        executorService = Executors.newFixedThreadPool(threadCount, new CustomizableThreadFactory("attribution-worker-"));
+        executorService = new java.util.concurrent.ThreadPoolExecutor(
+                threadCount,
+                threadCount,
+                0L, java.util.concurrent.TimeUnit.MILLISECONDS,
+                new java.util.concurrent.LinkedBlockingQueue<>(threadCount),
+                new CustomizableThreadFactory("attribution-worker-"),
+                new java.util.concurrent.ThreadPoolExecutor.AbortPolicy()
+        );
         for (int i = 0; i < threadCount; i++) {
             executorService.submit(this::processQueue);
         }
@@ -97,6 +101,9 @@ public class AttributionWorker {
                     try {
                         processJob(jobData);
                     } catch (Exception ex) {
+                        if (ex.getCause() instanceof InterruptedException || Thread.currentThread().isInterrupted()) {
+                            throw ex;
+                        }
                         handleFailedJob(jobData, ex);
                     }
                     // Reset reference since job has been processed/handled
@@ -228,11 +235,6 @@ public class AttributionWorker {
         // ── Step 1: Parse diffs and enrich chunks with file context ──
         for (var file : jobData.getFileDetails()) {
             if (file.getDiff() == null || file.getDiff().trim().isEmpty()) continue;
-
-            if (attributionFilter.shouldFilter(file)) {
-                log.info("[Worker] File {} skipped by filtering rules", file.getPath());
-                continue;
-            }
 
             List<DiffChunk> chunks = diffParser.parse(file.getDiff());
             // Count total added lines in this file

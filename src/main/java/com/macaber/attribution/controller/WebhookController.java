@@ -11,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import com.macaber.attribution.core.queue.QueueProducer;
+import com.macaber.attribution.core.AttributionFilter;
 
 import java.util.List;
 import java.util.Map;
@@ -32,6 +33,7 @@ public class WebhookController {
 
     private final ObjectMapper objectMapper;
     private final QueueProducer queueProducer;
+    private final AttributionFilter attributionFilter;
 
     @PostMapping("/doMerge")
     public ResponseEntity<?> doMerge(@RequestBody DoMergePayload payload) {
@@ -49,9 +51,10 @@ public class WebhookController {
                     .body(Map.of("error", "Invalid detail field: expected JSON array of {path, code, diff}"));
         }
 
-        // Filter out entries without diffs
+        // Filter out entries without diffs and entries that should be ignored by filtering rules
         fileDetails = fileDetails.stream()
                 .filter(f -> f.getDiff() != null && !f.getDiff().trim().isEmpty())
+                .filter(f -> !attributionFilter.shouldFilter(f))
                 .collect(Collectors.toList());
 
         if (fileDetails.isEmpty()) {

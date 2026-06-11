@@ -149,10 +149,10 @@
 
 在进入比对算法前，消除代码格式差异带来的噪音：
 
-1. 扫描时建立双向 `tokenToLineMap` 和 `lineTokenCounts` 书签体系
-2. 移除所有单行 (`//`) 和多行 (`/* */`) 注释
-3. 按非单词字符（符号）切分，移除所有纯空白字符，将代码转化为 Token 数组
-4. 将所有 Token 统一转换为小写
+1. **保留注释**：系统特意**保留注释**进行相似度比对。如果 AI 生成了注释并且用户采纳了它们，这也算作 AI 的贡献。
+2. **剔除空白**：移除行内所有的空白字符（空格、换行、制表符）。
+3. **大小写归一**：将字符统一转换为小写。
+4. **建立物理行号映射**：对于非空行，建立从“规格化后的行”到“原始未规格化代码物理行号”的反向追溯映射（LineMapping），以实现精准的行级物理追踪。
 
 ### 归因统计模型 (Attribution Model)
 
@@ -227,36 +227,54 @@ src/main/
     ├── application.properties      # 系统核心配置文件
     └── migrations/                 # 数据库初始化与升级 SQL 脚本
 ```
+## 🔄 任务失败处理与重试机制 (Failed Job & Retry Mechanism)
+
+由于系统是纯 Java 项目，并未内置复杂的后台轮询重试调度器。系统的错误重试与保障设计如下：
+
+1. **优雅停机与任务即时回滚 (Graceful Shutdown & Rollback)**
+   * 当工作线程执行任务过程中，由于系统重启、JVM 关闭或线程池关闭收到 `InterruptedException` 时，系统会捕获该异常。
+   * 系统通过双端阻塞队列的 `queue.addFirst(jobData)` 方法，将正在被中断的任务**即时回滚送回 Redis 队列头部**，防止任务丢失，供重启后的新实例或其它 Worker 线程继续拉取重试。
+
+2. **持久化失败任务记录 (Failed Job Log)**
+   * 遇上非中断的业务/系统报错（如数据库连接断开、大模型接口失败等），Worker 会捕获异常，并精简异常信息和堆栈（过滤冗余的框架代码，仅保留 Top 8 帧和 `com.macaber.` 业务帧），然后写入 `attribution_failed_jobs` 失败任务表。
+   * 该表中的 `job_data` 列以 JSON 格式完整记录了任务 Payload。
+   * 数据表中的 `status` 字段包含 `pending`（待重试）、`retrying`（重试中）、`resolved`（已解决）和 `abandoned`（已放弃）状态。
+
+3. **异步/人工重试设计 (External / Manual Retry)**
+   * 运维人员或自动化脚本可通过读取 `attribution_failed_jobs` 表中为 `pending` 状态的记录，提取其 `job_data` Payload 重新发送到 Redis 的 `attribution-queue` 队列中完成重试。
+
+---
 
 ## 🧪 测试 (Tests)
 
+使用 Maven 运行 JUnit 5 单元测试：
+
 ```bash
-npm test            # 85 tests, 7 suites
-npm run test:coverage
+mvn test
 ```
 
-| 测试套件 | 数量 | 覆盖内容 |
+### 测试类与覆盖内容 (Test Suites & Coverage)
+
+| 测试类 | 数量 | 覆盖内容 |
 |---|---|---|
-| `normalizer.test.ts` | 11 | 注释移除、空白清洗、大小写统一 |
-| `winnowing.test.ts` | 10 | K-gram 生成、指纹一致性 |
-| `lcs.test.ts` | 11 | DP 精度、空间优化、大输入熔断器 |
-| `diff-parser.test.ts` | 8 | Diff 解析、多文件、边界情况 |
-| `similarity-engine.test.ts` | 20 | L1 快速放行/熔断、L2 升级、L3 熔断保护、匹配类型映射 |
-| `lru-cache.test.ts` | 9 | 缓存存取、LRU 淘汰、TTL 过期 |
-| `language-map.test.ts` | 14 | 扩展名映射、不可解析文件过滤、L3 资格判定 |
+| `NormalizerTest` | 5 | 注释保留比对、空白清洗、大小写统一、行定位映射 |
+| `WinnowingTest` | 3 | K-gram 生成、指纹一致性、包含度度量 |
+| `LcsTest` | 8 | LCS 最长公共子序列、逆向回溯、Token 降维 |
+| `DiffParserTest` | 4 | Unified Diff 解析、多文件、空白/边界情况 |
+| `SimilarityEngineTest` | 13 | L1 快速放行、L2 LCS 物理行追溯、L3 AST 包含度判定、综合管线决策 |
+| `AttributionFilterTest` | 10 | 文件后缀过滤、大文件熔断、二进制文件检测、大 Diff 保护 |
+| `AttributionWorkerTest` | 2 | 失败任务的异常消息及异常堆栈精简机制 |
+| `ReportControllerTest` | 2 | 报告查询分页列表、聚合概览、单报告及贡献消息详情 API 验证 |
+
+---
 
 ## 🗺️ 支持的语言 (Supported Languages)
 
-| 语言 | 文件扩展名 | L3 AST | Grammar 文件 |
-|---|---|---|---|
-| TypeScript | `.ts` | ✅ | `tree-sitter-typescript.wasm` |
-| TSX | `.tsx` | ✅ | `tree-sitter-tsx.wasm` |
-| JavaScript | `.js`, `.mjs`, `.cjs`, `.jsx` | ✅ | `tree-sitter-javascript.wasm` |
-| Java | `.java` | ✅ | `tree-sitter-java.wasm` |
-| Python | `.py` | ✅ | `tree-sitter-python.wasm` |
-| CSS/LESS/SCSS | `.css`, `.less`, `.scss` | ✅ | `tree-sitter-css.wasm` |
-| Go | `.go` | ✅ | `tree-sitter-go.wasm` |
-| C | `.c`, `.h` | ✅ | `tree-sitter-c.wasm` |
-| C++ | `.cpp`, `.cc`, `.cxx`, `.hpp` | ✅ | `tree-sitter-cpp.wasm` |
-| 配置文件 | `.json`, `.yaml`, `.properties`, `.xml` 等 | ❌ 跳过 L3 | — |
-| 未知语言 | 其他 | ❌ 降级 L1+L2 | — |
+| 语言 | 文件扩展名 | L3 AST (基于 io.github.bonede JNI 库) |
+|---|---|---|
+| Java | `.java` | ✅ 支持 (tree-sitter-java) |
+| JavaScript | `.js`, `.mjs`, `.cjs`, `.jsx` | ✅ 支持 (tree-sitter-javascript) |
+| TypeScript / TSX | `.ts`, `.tsx` | ✅ 支持 (tree-sitter-typescript) |
+| 配置文件 | `.json`, `.yaml`, `.properties`, `.xml` 等 | ❌ 跳过 L3 |
+| 未知语言 | 其他 | ❌ 降级 L1+L2 |
+
