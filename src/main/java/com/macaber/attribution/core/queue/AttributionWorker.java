@@ -9,6 +9,7 @@ import com.macaber.attribution.service.AiMessageService;
 import com.macaber.attribution.service.AttributionResultService;
 import com.macaber.attribution.service.AttributionChunkDetailService;
 import com.macaber.attribution.service.AttributionFailedJobService;
+import com.macaber.attribution.service.AttributionFileDetailService;
 import com.macaber.attribution.entity.AttributionChunkDetail;
 import com.macaber.attribution.entity.AttributionFailedJob;
 import com.macaber.attribution.dto.*;
@@ -150,6 +151,7 @@ public class AttributionWorker {
                     .mergeId(jobData.getMergeId())
                     .repoName(jobData.getRepoName())
                     .userId(jobData.getUserId())
+                    .sysCode(jobData.getSysCode() != null ? jobData.getSysCode() : "")
                     .jobData(jobDataJson)
                     .errorMessage(simplifyErrorMessage(ex))
                     .errorStack(simplifyErrorStack(ex))
@@ -334,6 +336,7 @@ public class AttributionWorker {
                             .userId(row.getUserOa())
                             .timestamp(row.getCreatedAt())
                             .rawContent(rawContent)
+                            .fileName(row.getFileName())
                             .build());
                 }
             } catch (Exception e) {
@@ -391,6 +394,13 @@ public class AttributionWorker {
             if (chunk.getUserId() != null && msg.original.getUserId() != null
                     && !chunk.getUserId().equals(msg.original.getUserId())) {
                 continue;
+            }
+
+            // Match by file name if the AI message has it populated
+            if (msg.original.getFileName() != null && !msg.original.getFileName().trim().isEmpty()) {
+                if (!isSameFileName(chunk.getFilePath(), msg.original.getFileName())) {
+                    continue;
+                }
             }
 
             SimilarityEngine.EvaluationContext ctx = SimilarityEngine.EvaluationContext.builder()
@@ -609,29 +619,37 @@ public class AttributionWorker {
                 ? Math.round((totalAiContributedLines / totalAnalyzedLines) * 10000.0) / 10000.0
                 : 0;
 
-        AttributionResult resultRecord = AttributionResult.builder()
-                .mergeId(jobData.getMergeId())
-                .repoName(jobData.getRepoName())
-                .userId(jobData.getUserId())
-                .sysCode(jobData.getSysCode())
-                .title(jobData.getTitle())
-                .totalCodeLines(totalCodeLines)
-                .diffLines(diffLines)
-                .analyzedLines(totalAnalyzedLines)
-                .aiContributedLines(Math.round(totalAiContributedLines * 100.0) / 100.0)
-                .aiContributionRatio(ratio)
-                .skippedLines(0) // Assuming skippedLines applies differently or is 0
-                .skippedFileCount(skippedFileCount)
-                .strictMatches(strictMatches)
-                .fuzzyMatches(fuzzyMatches)
-                .deepRefactorMatches(deepRefactorMatches)
-                .noMatches(noMatches)
-                .elapsedMs((int) elapsedMs)
-                .createdAt(LocalDateTime.now())
-                .build();
+        AttributionResult resultRecord = null;
+        if (jobData.getReportId() != null) {
+            resultRecord = resultService.getById(jobData.getReportId());
+        }
+        if (resultRecord == null) {
+            resultRecord = AttributionResult.builder()
+                    .mergeId(jobData.getMergeId())
+                    .repoName(jobData.getRepoName())
+                    .userId(jobData.getUserId())
+                    .sysCode(jobData.getSysCode())
+                    .title(jobData.getTitle())
+                    .createdAt(LocalDateTime.now())
+                    .build();
+            resultService.save(resultRecord);
+        }
 
-        resultService.save(resultRecord);
-        
+        resultRecord.setTotalCodeLines(totalCodeLines);
+        resultRecord.setDiffLines(diffLines);
+        resultRecord.setAnalyzedLines(totalAnalyzedLines);
+        resultRecord.setAiContributedLines(Math.round(totalAiContributedLines * 100.0) / 100.0);
+        resultRecord.setAiContributionRatio(ratio);
+        resultRecord.setSkippedLines(0);
+        resultRecord.setSkippedFileCount(skippedFileCount);
+        resultRecord.setStrictMatches(strictMatches);
+        resultRecord.setFuzzyMatches(fuzzyMatches);
+        resultRecord.setDeepRefactorMatches(deepRefactorMatches);
+        resultRecord.setNoMatches(noMatches);
+        resultRecord.setElapsedMs((int) elapsedMs);
+
+        resultService.updateById(resultRecord);
+
         List<AttributionChunkDetail> chunkDetails = new ArrayList<>();
         for (MatchResult r : results) {
             AttributionChunkDetail detail = AttributionChunkDetail.builder()
@@ -679,6 +697,20 @@ public class AttributionWorker {
             }
         }
         log.info("[Worker] AttributionWorker graceful shutdown completed.");
+    }
+
+    boolean isSameFileName(String pathA, String pathB) {
+        if (pathA == null || pathB == null) {
+            return false;
+        }
+        String pA = pathA.trim().replace('\\', '/');
+        String pB = pathB.trim().replace('\\', '/');
+        if (pA.equalsIgnoreCase(pB)) {
+            return true;
+        }
+        String nameA = pA.substring(pA.lastIndexOf('/') + 1);
+        String nameB = pB.substring(pB.lastIndexOf('/') + 1);
+        return nameA.equalsIgnoreCase(nameB);
     }
 
     // ── Internal helper classes ──

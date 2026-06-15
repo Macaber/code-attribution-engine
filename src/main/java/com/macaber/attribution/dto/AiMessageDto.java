@@ -11,6 +11,7 @@ public class AiMessageDto {
     private String userId;
     private LocalDateTime timestamp;
     private String rawContent;
+    private String fileName;
     /** Content after normalization (populated during processing) */
     private String normalizedContent;
 }

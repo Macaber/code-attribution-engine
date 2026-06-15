@@ -5,8 +5,10 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.macaber.attribution.entity.AttributionChunkDetail;
 import com.macaber.attribution.entity.AttributionResult;
+import com.macaber.attribution.entity.AttributionFileDetail;
 import com.macaber.attribution.service.AttributionChunkDetailService;
 import com.macaber.attribution.service.AttributionResultService;
+import com.macaber.attribution.service.AttributionFileDetailService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -29,6 +31,7 @@ public class ReportController {
 
     private final AttributionResultService resultService;
     private final AttributionChunkDetailService chunkDetailService;
+    private final AttributionFileDetailService fileDetailService;
 
     /**
      * GET /api/reports
@@ -202,16 +205,21 @@ public class ReportController {
      * Query single report detail including chunk details and message breakdowns.
      */
     @GetMapping("/{mergeId}")
-    public ResponseEntity<?> getReportByMergeId(@PathVariable("mergeId") String mergeId) {
-        log.info("[ReportController] getReportByMergeId — mergeId: {}", mergeId);
+    public ResponseEntity<?> getReportByMergeId(
+            @PathVariable("mergeId") String mergeId,
+            @RequestParam(value = "sysCode", required = false) String sysCode) {
+        log.info("[ReportController] getReportByMergeId — mergeId: {}, sysCode: {}", mergeId, sysCode);
         if (mergeId == null || mergeId.trim().isEmpty()) {
             return ResponseEntity.badRequest().body(Map.of("error", "mergeId is required"));
         }
 
-        AttributionResult report = resultService.getOne(
-                new LambdaQueryWrapper<AttributionResult>()
-                        .eq(AttributionResult::getMergeId, mergeId)
-        );
+        LambdaQueryWrapper<AttributionResult> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(AttributionResult::getMergeId, mergeId);
+        if (sysCode != null && !sysCode.trim().isEmpty()) {
+            queryWrapper.eq(AttributionResult::getSysCode, sysCode.trim());
+        }
+
+        AttributionResult report = resultService.getOne(queryWrapper);
 
         if (report == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
@@ -259,8 +267,42 @@ public class ReportController {
     }
 
     /**
+     * GET /api/reports/{mergeId}/files
+     * Query original files (path, code, diff) associated with a report.
+     */
+    @GetMapping("/{mergeId}/files")
+    public ResponseEntity<?> getReportFiles(
+            @PathVariable("mergeId") String mergeId,
+            @RequestParam(value = "sysCode", required = false) String sysCode) {
+        log.info("[ReportController] getReportFiles — mergeId: {}, sysCode: {}", mergeId, sysCode);
+        if (mergeId == null || mergeId.trim().isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "mergeId is required"));
+        }
+
+        LambdaQueryWrapper<AttributionResult> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(AttributionResult::getMergeId, mergeId);
+        if (sysCode != null && !sysCode.trim().isEmpty()) {
+            queryWrapper.eq(AttributionResult::getSysCode, sysCode.trim());
+        }
+
+        AttributionResult report = resultService.getOne(queryWrapper);
+        if (report == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", "Report not found for mergeId: " + mergeId));
+        }
+
+        List<AttributionFileDetail> files = fileDetailService.list(
+                new LambdaQueryWrapper<AttributionFileDetail>()
+                        .eq(AttributionFileDetail::getReportId, report.getId())
+        );
+
+        return ResponseEntity.ok(files);
+    }
+
+    /**
      * Inner helper class for calculating message breakdowns.
      */
+
     private static class MessageBreakdownBuilder {
         private final String messageId;
         private double contributedLines = 0.0;

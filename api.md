@@ -250,6 +250,12 @@ GET /api/reports/stats/summary?userId=yfsun&startDate=2026-04-01
 |------|------|------|------|
 | `mergeId` | string | 是 | Merge Request ID |
 
+**Query Parameters:**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `sysCode` | string | 否 | 系统代码（用于解决不同系统相同 mergeId 的冲突） |
+
 **请求示例：**
 
 ```
@@ -329,6 +335,54 @@ GET /api/reports/MR-20260427-001
 | `contributedLines` | 该消息贡献的总行数 |
 | `chunkCount` | 匹配到的 chunk 数量 |
 | `matchTypes` | 涉及的归因类型列表 |
+
+**Error Responses:**
+
+- `400 Bad Request` — 缺少 mergeId 参数
+- `404 Not Found` — 未找到对应报告
+
+```json
+{
+  "error": "Report not found for mergeId: MR-XXXXX"
+}
+```
+
+### `GET /api/reports/:mergeId/files`
+
+查询单个 Merge 关联的文件详情（包含文件路径、原始代码和 Diff 内容）。
+
+**Path Parameters:**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `mergeId` | string | 是 | Merge Request ID |
+
+**Query Parameters:**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `sysCode` | string | 否 | 系统代码（用于解决不同系统相同 mergeId 的冲突） |
+
+**请求示例：**
+
+```
+GET /api/reports/MR-20260427-001/files?sysCode=ELLM
+```
+
+**Response** `200 OK`
+
+```json
+[
+  {
+    "id": 12,
+    "reportId": 42,
+    "filePath": "src/main/java/com/macaber/attribution/core/Normalizer.java",
+    "code": "package com.macaber.attribution.core;...",
+    "diff": "@@ -1,10 +1,15 @@...",
+    "createdAt": "2026-06-15T15:00:00"
+  }
+]
+```
 
 **Error Responses:**
 

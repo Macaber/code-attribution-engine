@@ -89,4 +89,29 @@ class AttributionWorkerTest {
         // Should contain truncation note
         assertTrue(simplifiedDeepStack.contains("more framework/internal frames truncated"));
     }
+
+    @Test
+    void testIsSameFileName() {
+        AttributionWorker worker = new AttributionWorker(null, null, null, null, null, null, null, null);
+
+        // Test identical
+        assertTrue(worker.isSameFileName("Normalizer.java", "Normalizer.java"));
+        assertTrue(worker.isSameFileName("src/main/Normalizer.java", "src/main/Normalizer.java"));
+
+        // Test case insensitive
+        assertTrue(worker.isSameFileName("normalizer.java", "Normalizer.java"));
+
+        // Test path separator mapping
+        assertTrue(worker.isSameFileName("src\\main\\Normalizer.java", "src/main/Normalizer.java"));
+
+        // Test base name matching
+        assertTrue(worker.isSameFileName("src/main/java/com/macaber/attribution/core/Normalizer.java", "Normalizer.java"));
+        assertTrue(worker.isSameFileName("Normalizer.java", "src/main/java/com/macaber/attribution/core/Normalizer.java"));
+
+        // Test mismatch
+        assertFalse(worker.isSameFileName("Normalizer.java", "SimilarityEngine.java"));
+        assertFalse(worker.isSameFileName("src/Normalizer.java", "src/SimilarityEngine.java"));
+        assertFalse(worker.isSameFileName(null, "Normalizer.java"));
+        assertFalse(worker.isSameFileName("Normalizer.java", null));
+    }
 }

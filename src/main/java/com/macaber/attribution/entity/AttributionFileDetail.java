@@ -4,28 +4,34 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
 @Data
-@TableName("ai_messages")
-public class AiMessage {
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+@TableName("attribution_file_details")
+public class AttributionFileDetail {
 
     @TableId(type = IdType.AUTO)
     private Long id;
 
-    @TableField("user_oa")
-    private String userOa;
+    @TableField("report_id")
+    private Long reportId;
 
-    @TableField("function_name")
-    private String functionName;
+    @TableField("file_path")
+    private String filePath;
 
-    @TableField("function_arguments")
-    private String functionArguments;
+    @TableField("code")
+    private String code;
 
-    @TableField("file_name")
-    private String fileName;
+    @TableField("diff")
+    private String diff;
 
     @TableField("created_at")
     private LocalDateTime createdAt;

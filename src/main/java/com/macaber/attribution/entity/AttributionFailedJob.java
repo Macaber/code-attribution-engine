@@ -33,6 +33,9 @@ public class AttributionFailedJob {
     @TableField("user_id")
     private String userId;
 
+    @TableField("sys_code")
+    private String sysCode;
+
     @TableField("job_data")
     private String jobData;
 
