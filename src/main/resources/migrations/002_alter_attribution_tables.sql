@@ -11,6 +11,8 @@
 -- （在此保持 sys_code 为 NULL 允许以兼容某些分布式 DB 无法对已有数据表修改 NOT NULL 的限制，Java 逻辑层已做强校验，保证只写入非空字符串 ''）
 ALTER TABLE attribution_reports DROP INDEX uk_merge_id;
 ALTER TABLE attribution_reports ADD UNIQUE KEY uk_sys_code_merge_id (sys_code, merge_id);
+ALTER TABLE attribution_reports ADD COLUMN source VARCHAR(256) NULL COMMENT '源分支' AFTER sys_code;
+ALTER TABLE attribution_reports ADD COLUMN target VARCHAR(256) NULL COMMENT '目的分支' AFTER source;
 
 
 -- ── 2. 更新 attribution_failed_jobs 表 ──

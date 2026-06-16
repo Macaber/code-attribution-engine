@@ -35,6 +35,12 @@ public class AttributionResult {
 
     @TableField("title")
     private String title;
+    
+    @TableField("source")
+    private String source;
+
+    @TableField("target")
+    private String target;
 
     @TableField("total_code_lines")
     private Integer totalCodeLines;

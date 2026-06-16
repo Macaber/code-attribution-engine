@@ -23,5 +23,7 @@ public class AttributionJobData implements Serializable {
     private String userId;
     private String sysCode;
     private String title;
+    private String source;
+    private String target;
     private List<MergeFileDetail> fileDetails;
 }

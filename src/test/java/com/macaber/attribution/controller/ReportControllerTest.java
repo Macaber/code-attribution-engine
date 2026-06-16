@@ -84,6 +84,8 @@ class ReportControllerTest {
                 .sysCode("SYS-A")
                 .repoName("my-repo")
                 .userId("user1")
+                .source("feature/branch-a")
+                .target("master")
                 .createdAt(LocalDateTime.now())
                 .build();
 
@@ -102,7 +104,9 @@ class ReportControllerTest {
         mockMvc.perform(get("/api/reports/MR-100").param("sysCode", "SYS-A"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.report.mergeId").value("MR-100"))
-                .andExpect(jsonPath("$.report.sysCode").value("SYS-A"));
+                .andExpect(jsonPath("$.report.sysCode").value("SYS-A"))
+                .andExpect(jsonPath("$.report.source").value("feature/branch-a"))
+                .andExpect(jsonPath("$.report.target").value("master"));
     }
 
     @Test

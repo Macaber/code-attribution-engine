@@ -628,8 +628,10 @@ public class AttributionWorker {
                     .mergeId(jobData.getMergeId())
                     .repoName(jobData.getRepoName())
                     .userId(jobData.getUserId())
-                    .sysCode(jobData.getSysCode())
+                    .sysCode(jobData.getSysCode() != null ? jobData.getSysCode() : "")
                     .title(jobData.getTitle())
+                    .source(jobData.getSource())
+                    .target(jobData.getTarget())
                     .createdAt(LocalDateTime.now())
                     .build();
             resultService.save(resultRecord);

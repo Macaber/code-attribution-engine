@@ -3,6 +3,7 @@ package com.macaber.attribution.controller;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.macaber.attribution.entity.AiMessage;
 import com.macaber.attribution.entity.AttributionChunkDetail;
 import com.macaber.attribution.entity.AttributionResult;
 import com.macaber.attribution.entity.AttributionFileDetail;

@@ -73,6 +73,8 @@ public class WebhookController {
                 .userId(payload.getOa())
                 .sysCode(sysCode)
                 .title(payload.getTitle())
+                .source(payload.getSource())
+                .target(payload.getTarget())
                 .createdAt(LocalDateTime.now())
                 .build();
         resultService.save(report);
@@ -124,6 +126,8 @@ public class WebhookController {
                 .userId(payload.getOa())
                 .sysCode(payload.getSysCode())
                 .title(payload.getTitle())
+                .source(payload.getSource())
+                .target(payload.getTarget())
                 .fileDetails(fileDetails)
                 .build();
 

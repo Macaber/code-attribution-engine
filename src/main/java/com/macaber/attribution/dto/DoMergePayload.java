@@ -10,6 +10,8 @@ public class DoMergePayload {
     private String repoName;
     private String mergeId;
     private String title;
+    private String source;
+    private String target;
     private String createTime;
     private String detail; // JSON string mapping to List<MergeFileDetail>
 }
