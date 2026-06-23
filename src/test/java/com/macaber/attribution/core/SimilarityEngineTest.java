@@ -12,7 +12,7 @@ class SimilarityEngineTest {
     @BeforeEach
     void setUp() {
         // null configurations to use defaults
-        engine = new SimilarityEngine(null, null, null, null, null);
+        engine = new SimilarityEngine(null, null, null, null);
     }
 
     @Test
@@ -155,7 +155,7 @@ class SimilarityEngineTest {
         config.getL2().setFilterTrivialEnabled(true);
         config.getL2().setTrivialLines(java.util.Arrays.asList("{", "}", "<div>"));
         
-        SimilarityEngine customEngine = new SimilarityEngine(null, null, null, config, null);
+        SimilarityEngine customEngine = new SimilarityEngine(null, null, null, config);
 
         // Scenario 1: Chunk analyzed lines > 1, matches exactly 1 line which is "{" (trivial)
         // Short texts bypass L1 to prevent L1 fast-fail.
@@ -196,7 +196,7 @@ class SimilarityEngineTest {
     @Test
     void testEvaluateChunk_Concurrency_DoesNotDeadlockOrHang() throws Exception {
         PipelineConfig config = new PipelineConfig();
-        SimilarityEngine customEngine = new SimilarityEngine(null, null, null, config, new AstFeatureEngine());
+        SimilarityEngine customEngine = new SimilarityEngine(null, null, null, config);
 
         int threadCount = 10;
         int tasksPerThread = 50;

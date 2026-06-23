@@ -63,27 +63,6 @@
             <artifactId>jackson-databind</artifactId>
         </dependency>
 
-        <!-- Tree-sitter -->
-        <dependency>
-            <groupId>io.github.bonede</groupId>
-            <artifactId>tree-sitter</artifactId>
-            <version>0.25.3</version>
-        </dependency>
-        <dependency>
-            <groupId>io.github.bonede</groupId>
-            <artifactId>tree-sitter-java</artifactId>
-            <version>0.23.5</version>
-        </dependency>
-        <dependency>
-            <groupId>io.github.bonede</groupId>
-            <artifactId>tree-sitter-javascript</artifactId>
-            <version>0.25.0</version>
-        </dependency>
-        <dependency>
-            <groupId>io.github.bonede</groupId>
-            <artifactId>tree-sitter-typescript</artifactId>
-            <version>0.23.2</version>
-        </dependency>
 
         <!-- Testing -->
         <dependency>

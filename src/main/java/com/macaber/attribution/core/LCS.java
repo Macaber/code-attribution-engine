@@ -1,5 +1,7 @@
 package com.macaber.attribution.core;
 
+import lombok.Getter;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -150,7 +152,19 @@ public class LCS {
      * @param tgtLines Normalized lines from the target (diff chunk) code
      * @return List of indices into `tgtLines` that matched (0-indexed, ascending)
      */
-    public List<Integer> calculateTraceableLcsLines(List<String> refLines, List<String> tgtLines) {
+    @Getter
+    public static class LcsLineMatch {
+        private final int refIndex;
+        private final int tgtIndex;
+
+        public LcsLineMatch(int refIndex, int tgtIndex) {
+            this.refIndex = refIndex;
+            this.tgtIndex = tgtIndex;
+        }
+
+    }
+
+    public List<LcsLineMatch> calculateTraceableLcsLineMatches(List<String> refLines, List<String> tgtLines) {
         if (refLines == null || refLines.isEmpty() || tgtLines == null || tgtLines.isEmpty()) {
             return new ArrayList<>();
         }
@@ -178,14 +192,14 @@ public class LCS {
             }
         }
 
-        // Backtrack to find matched target line indices
+        // Backtrack to find matched line index pairs
         int i = m;
         int j = n;
-        List<Integer> matchedLineIndices = new ArrayList<>();
+        List<LcsLineMatch> matches = new ArrayList<>();
 
         while (i > 0 && j > 0) {
             if (refLines.get(i - 1).equals(tgtLines.get(j - 1))) {
-                matchedLineIndices.add(j - 1);
+                matches.add(new LcsLineMatch(i - 1, j - 1));
                 i--;
                 j--;
             } else {
@@ -200,7 +214,16 @@ public class LCS {
             }
         }
 
-        Collections.reverse(matchedLineIndices);
+        Collections.reverse(matches);
+        return matches;
+    }
+
+    public List<Integer> calculateTraceableLcsLines(List<String> refLines, List<String> tgtLines) {
+        List<LcsLineMatch> matches = calculateTraceableLcsLineMatches(refLines, tgtLines);
+        List<Integer> matchedLineIndices = new ArrayList<>();
+        for (LcsLineMatch match : matches) {
+            matchedLineIndices.add(match.getTgtIndex());
+        }
         return matchedLineIndices;
     }
 

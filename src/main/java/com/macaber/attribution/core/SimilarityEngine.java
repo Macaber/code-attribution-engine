@@ -2,6 +2,7 @@ package com.macaber.attribution.core;
 
 import lombok.Builder;
 import lombok.Data;
+import lombok.Getter;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -20,10 +21,14 @@ import java.util.Set;
  * Aligned with TS: src/domains/attribution/similarity-engine.ts
  */
 public class SimilarityEngine {
+    /**
+     * -- GETTER --
+     *  Expose normalizer for worker pre-normalization.
+     */
+    @Getter
     private final Normalizer normalizer;
     private final Winnowing winnowing;
     private final LCS lcs;
-    private final AstFeatureEngine astEngine;
     private final PipelineConfig config;
     private final int winnowingMinLength;
     private final SimilarityWeights weights;
@@ -35,14 +40,12 @@ public class SimilarityEngine {
             SimilarityWeights weights,
             WinnowingConfig winnowingConfig,
             LcsConfig lcsConfig,
-            PipelineConfig pipelineConfig,
-            AstFeatureEngine astEngine) {
+            PipelineConfig pipelineConfig) {
 
         this.normalizer = new Normalizer();
         this.winnowing = new Winnowing(winnowingConfig);
         this.winnowingMinLength = winnowingConfig != null ? winnowingConfig.getKgramLength() : 5;
         this.lcs = new LCS(lcsConfig);
-        this.astEngine = astEngine; // Can be null if L3 is disabled
         this.weights = weights != null ? weights : new SimilarityWeights();
         this.config = pipelineConfig != null ? pipelineConfig : new PipelineConfig();
     }
@@ -102,15 +105,19 @@ public class SimilarityEngine {
 
         // ── Line-level LCS: each normalized line is an atomic comparison unit ──
         // This eliminates cross-line token leakage and the need for per-line thresholds.
-        List<Integer> matchedNormalizedIndices = lcs.calculateTraceableLcsLines(
+        List<LCS.LcsLineMatch> matches = lcs.calculateTraceableLcsLineMatches(
                 aiLineMapping.getNormalizedLines(), chunkLineMapping.getNormalizedLines()
         );
 
         // Map matched normalizedLines indices back to original 0-indexed line numbers
-        int exactContributedLines = matchedNormalizedIndices.size();
+        int exactContributedLines = matches.size();
         Set<Integer> contributedLineIndices = new HashSet<>();
-        for (int idx : matchedNormalizedIndices) {
-            contributedLineIndices.add(chunkLineMapping.getOriginalLineIndices().get(idx));
+        List<Map<String, Integer>> lineMatches = new java.util.ArrayList<>();
+        for (LCS.LcsLineMatch match : matches) {
+            int origTgt = chunkLineMapping.getOriginalLineIndices().get(match.getTgtIndex());
+            int origRef = aiLineMapping.getOriginalLineIndices().get(match.getRefIndex());
+            contributedLineIndices.add(origTgt);
+            lineMatches.add(Map.of("chunkLineIdx", origTgt, "aiLineIdx", origRef));
         }
 
         // Trivial line filter: when chunk analyzed lines > 1 and match is exactly 1 line
@@ -118,7 +125,7 @@ public class SimilarityEngine {
         if (config.getL2().isFilterTrivialEnabled()
                 && chunkLineMapping.getNormalizedLines().size() > 1
                 && exactContributedLines == 1) {
-            int matchedIdx = matchedNormalizedIndices.get(0);
+            int matchedIdx = matches.get(0).getTgtIndex();
             String matchedLineContent = chunkLineMapping.getNormalizedLines().get(matchedIdx);
             if (config.getL2().getNormalizedTrivialLines().contains(matchedLineContent)) {
                 Map<String, Double> details = new HashMap<>();
@@ -175,6 +182,7 @@ public class SimilarityEngine {
                         .details(details)
                         .exactContributedLines(exactContributedLines)
                         .contributedLineIndices(contributedLineIndices)
+                        .lineMatches(lineMatches)
                         .build();
             }
             if (l1Score <= config.getL1().getFastFail()) {
@@ -186,6 +194,7 @@ public class SimilarityEngine {
                         .details(details)
                         .exactContributedLines(exactContributedLines)
                         .contributedLineIndices(contributedLineIndices)
+                        .lineMatches(lineMatches)
                         .build();
             }
         }
@@ -194,7 +203,7 @@ public class SimilarityEngine {
         // L2: Line LCS — matched lines / total non-blank lines in the chunk
         // ═════════════════════════════════════════════════════
         double l2Score = chunkLineMapping.getNonBlankLineCount() > 0
-                ? (double) matchedNormalizedIndices.size() / chunkLineMapping.getNonBlankLineCount()
+                ? (double) exactContributedLines / chunkLineMapping.getNonBlankLineCount()
                 : 0;
         details.put("l1WinnowingScore", l1Score);
         details.put("l2LcsScore", l2Score);
@@ -207,76 +216,14 @@ public class SimilarityEngine {
                     .details(details)
                     .exactContributedLines(exactContributedLines)
                     .contributedLineIndices(contributedLineIndices)
+                    .lineMatches(lineMatches)
                     .build();
         }
 
         // We intentionally removed L2 fastFail here. Even if L2 score is < 0.30,
-        // it might still contain exactContributedLines > 0. We let it escalate to L3,
-        // and if L3 fails, our buildFallbackResult will secure the matched lines.
-
-        // ═════════════════════════════════════════════════════
-        // L3: AST Feature Matching — structural feature comparison (heavy, only triggered for ambiguous cases)
-        // ═════════════════════════════════════════════════════
-
-        // Circuit breaker: skip L3 if too many added lines
-        int addedLines = options != null ? options.getAddedLineCount() : 0;
-        if (addedLines > config.getMaxLinesForL3()) {
-            return buildFallbackResult(l1Score, l2Score, exactContributedLines, contributedLineIndices, details);
-        }
-
-        // Language check: skip L3 for non-parseable files
-        String filePath = options != null ? options.getFilePath() : null;
-        if (filePath == null || !isL3Eligible(filePath)) {
-            return buildFallbackResult(l1Score, l2Score, exactContributedLines, contributedLineIndices, details);
-        }
-
-        // Need full file content for proper AST parsing
-        String fileContent = options != null ? options.getFileContent() : null;
-        if (fileContent == null || fileContent.isEmpty()) {
-            return buildFallbackResult(l1Score, l2Score, exactContributedLines, contributedLineIndices, details);
-        }
-
-        // Guard: skip L3 if no AST engine available
-        if (astEngine == null) {
-            return buildFallbackResult(l1Score, l2Score, exactContributedLines, contributedLineIndices, details);
-        }
-
-        // Run L3 AST comparison
-        try {
-            AstFeatureEngine.LineRange diffLineRange = null;
-            if (options.getChunkStartLine() != null && options.getChunkEndLine() != null) {
-                diffLineRange = new AstFeatureEngine.LineRange(
-                        options.getChunkStartLine() - 1,
-                        options.getChunkEndLine() - 1
-                );
-            }
-
-            Double l3Score = astEngine.compareFeatures(aiCode, fileContent, filePath, diffLineRange);
-
-            if (l3Score == null) {
-                return buildFallbackResult(l1Score, l2Score, exactContributedLines, contributedLineIndices, details);
-            }
-
-            details.put("l3AstScore", l3Score);
-
-            if (l3Score >= config.getL3().getPass()) {
-                return EvaluationResult.builder()
-                        .score(l3Score)
-                        .matchType(MatchType.DEEP_REFACTOR)
-                        .level(PipelineLevel.L3)
-                        .details(details)
-                        .exactContributedLines(exactContributedLines)
-                        .contributedLineIndices(contributedLineIndices)
-                        .build();
-            }
-
-        } catch (Exception e) {
-            System.err.println("[SimilarityEngine] L3 AST analysis failed, falling back to L1+L2: " + e.getMessage());
-            return buildFallbackResult(l1Score, l2Score, exactContributedLines, contributedLineIndices, details);
-        }
-
-        // All layers evaluated. Did we find any structural match?
-        return buildFallbackResult(l1Score, l2Score, exactContributedLines, contributedLineIndices, details);
+        // it might still contain exactContributedLines > 0. Since L3 AST is removed,
+        // we directly return buildFallbackResult to secure the matched lines.
+        return buildFallbackResult(l1Score, l2Score, exactContributedLines, contributedLineIndices, lineMatches, details);
     }
 
     /**
@@ -289,6 +236,7 @@ public class SimilarityEngine {
             double l2Score,
             int exactContributedLines,
             Set<Integer> contributedLineIndices,
+            List<Map<String, Integer>> lineMatches,
             Map<String, Double> details) {
 
         double combinedScore = weights.getWinnowing() * l1Score + weights.getLcs() * l2Score;
@@ -311,6 +259,7 @@ public class SimilarityEngine {
                 .details(details)
                 .exactContributedLines(exactContributedLines)
                 .contributedLineIndices(contributedLineIndices)
+                .lineMatches(lineMatches)
                 .build();
     }
 
@@ -373,19 +322,4 @@ public class SimilarityEngine {
         return "none";
     }
 
-    private boolean isL3Eligible(String filePath) {
-        if (filePath == null) return false;
-        return filePath.endsWith(".java") ||
-               filePath.endsWith(".ts") ||
-               filePath.endsWith(".tsx") ||
-               filePath.endsWith(".js") ||
-               filePath.endsWith(".jsx");
-    }
-
-    /**
-     * Expose normalizer for worker pre-normalization.
-     */
-    public Normalizer getNormalizer() {
-        return normalizer;
-    }
 }

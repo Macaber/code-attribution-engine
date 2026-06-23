@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Code Attribution Trace Dashboard</title>
+    <!-- Google Fonts: Outfit for UI, JetBrains Mono for Code -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;1,400&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body class="dark-theme">
+    <div class="app-container">
+        <!-- Header Section -->
+        <header class="main-header">
+            <div class="logo-area">
+                <span class="logo-icon">⚡</span>
+                <h1>Code Attribution <span class="badge badge-glow">TRACE ENGINE</span></h1>
+            </div>
+            <div class="report-search-bar">
+                <input type="text" id="report-search-input" placeholder="输入 Merge ID 搜索..." value="">
+                <button id="search-btn" class="btn btn-primary">搜索</button>
+                <button id="theme-toggle-btn" class="btn btn-secondary btn-icon" title="切换主题">
+                    <span class="theme-icon-sun">☀️</span>
+                    <span class="theme-icon-moon hidden">🌙</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Layout -->
+        <main class="dashboard-layout">
+            
+            <!-- Left Sidebar: Reports and Files Navigation -->
+            <aside class="sidebar">
+                <!-- Section 1: Report Selector -->
+                <div class="sidebar-card">
+                    <h3>📊 报告列表</h3>
+                    <div id="report-list" class="report-list-container">
+                        <!-- Dynamic list of reports -->
+                    </div>
+                    <div class="pagination-controls">
+                        <button id="prev-page-btn" class="btn btn-secondary btn-xs" disabled>◀</button>
+                        <span id="page-indicator">1 / 1</span>
+                        <button id="next-page-btn" class="btn btn-secondary btn-xs" disabled>▶</button>
+                    </div>
+                </div>
+
+
+                <!-- Section 2: Selected Report Overview -->
+                <div id="report-summary-card" class="sidebar-card summary-card hidden">
+                    <h3>📈 归因概览</h3>
+                    <div class="summary-metrics">
+                        <div class="metric">
+                            <span class="label">AI 比例</span>
+                            <span class="value ratio-value" id="summary-ratio">0.0%</span>
+                        </div>
+                        <div class="metric">
+                            <span class="label">分析行数</span>
+                            <span class="value" id="summary-lines">0</span>
+                        </div>
+                        <div class="metric">
+                            <span class="label">AI 行数</span>
+                            <span class="value" id="summary-ai-lines">0</span>
+                        </div>
+                    </div>
+                    <div class="summary-details">
+                        <p><strong>仓库:</strong> <span id="summary-repo">-</span></p>
+                        <p><strong>作者:</strong> <span id="summary-author">-</span></p>
+                        <p><strong>时间:</strong> <span id="summary-time">-</span></p>
+                    </div>
+                </div>
+
+                <!-- Section 3: File and Chunk List -->
+                <div class="sidebar-card file-list-card flex-grow">
+                    <h3>📂 变更文件及代码块</h3>
+                    <div id="file-tree" class="file-tree-container">
+                        <div class="empty-state">请先选择或搜索一个归因报告</div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Right Workspace: Visualizer split pane -->
+            <section class="workspace">
+                <div id="no-selection-state" class="workspace-empty">
+                    <div class="empty-glow-icon">🔍</div>
+                    <h2>代码归因溯源工作台</h2>
+                    <p>在左侧列表中点击具体的文件代码块 (Chunk)，即可在此处查看其与 AI 消息 (AiMessage) 之间的详细覆盖关系和行级比对结果。</p>
+                </div>
+
+                <div id="visualization-workspace" class="workspace-content hidden">
+                    <!-- Title Bar of selected Chunk -->
+                    <div class="workspace-title-bar">
+                        <div class="chunk-title-info">
+                            <h2 id="current-chunk-file">File Path</h2>
+                            <span id="current-chunk-lines" class="badge">Lines 0 - 0</span>
+                            <span id="current-chunk-userId" class="badge badge-secondary">Author</span>
+                        </div>
+                        <div class="chunk-match-badge">
+                            <span id="current-chunk-attribution-badge" class="badge-status">FUZZY</span>
+                            <span id="current-chunk-score-badge" class="badge-score">95.0%</span>
+                        </div>
+                    </div>
+
+                    <!-- Split Code & Source View -->
+                    <div class="split-pane">
+                        <svg id="connection-svg" class="connection-svg"></svg>
+                        <!-- Left Pane: Chunk Code Highlighted -->
+                        <div class="pane left-pane">
+                            <div class="pane-header">
+                                <h3>📝 代码变更块 (Chunk Content)</h3>
+                                <div class="highlight-controls">
+                                    <label class="control-checkbox">
+                                        <input type="checkbox" id="toggle-highlight-all" checked>
+                                        <span>高亮所有匹配行</span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="code-container">
+                                <div class="code-wrapper" id="chunk-code-viewer">
+                                    <!-- Rendered line by line -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Right Pane: AI Message Source -->
+                        <div class="pane right-pane">
+                            <div class="pane-header">
+                                <h3>🤖 AI 消息溯源 (AiMessage Source)</h3>
+                                <div class="message-select-tabs" id="message-tabs">
+                                    <!-- Dynamic Tabs for matched messages -->
+                                </div>
+                            </div>
+                            <div class="message-content-area" id="message-content-panel">
+                                <!-- Dynamic Matched Message Details & Code -->
+                                <div class="empty-state">无匹配的 AI 消息</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Tooltip Element -->
+    <div id="hover-tooltip" class="tooltip hidden"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>

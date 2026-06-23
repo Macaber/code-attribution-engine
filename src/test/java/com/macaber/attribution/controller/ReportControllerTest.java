@@ -46,6 +46,14 @@ class ReportControllerTest {
     @MockBean
     private AttributionFilter attributionFilter;
 
+    @MockBean
+    private com.macaber.attribution.core.SimilarityEngine similarityEngine;
+
+    @MockBean
+    private com.macaber.attribution.service.AiMessageService aiMessageService;
+
+
+
     @Test
     void testGetReportByMergeId_NotFound() throws Exception {
         Mockito.when(resultService.getOne(any())).thenReturn(null);
@@ -248,4 +256,56 @@ class ReportControllerTest {
                 job.getTimeframeDays() != null && job.getTimeframeDays() == 15
         ));
     }
+
+    @Test
+    void testGetReportVisualization_Success() throws Exception {
+        AttributionResult report = AttributionResult.builder()
+                .id(1L)
+                .mergeId("MR-100")
+                .sysCode("SYS-A")
+                .repoName("my-repo")
+                .userId("user1")
+                .createdAt(LocalDateTime.now())
+                .build();
+
+        AttributionFileDetail fileDetail = AttributionFileDetail.builder()
+                .id(10L)
+                .reportId(1L)
+                .filePath("src/Test.java")
+                .code("public class Test {\n}")
+                .diff("diff --git a/src/Test.java b/src/Test.java\n" +
+                        "--- a/src/Test.java\n" +
+                        "+++ b/src/Test.java\n" +
+                        "@@ -1,2 +1,2 @@\n" +
+                        "+(yfsun)+public class Test {\n" +
+                        "+(yfsun)+}")
+                .build();
+
+        AttributionChunkDetail chunkDetail = AttributionChunkDetail.builder()
+                .id(101L)
+                .reportId(1L)
+                .filePath("src/Test.java")
+                .startLine(1)
+                .endLine(2)
+                .matchedMessageIds("2001")
+                .attribution("fuzzy")
+                .score(0.9)
+                .matchType("FUZZY")
+                .level("L2")
+                .build();
+
+        Mockito.when(resultService.getOne(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class))).thenReturn(report);
+        Mockito.when(fileDetailService.list(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class))).thenReturn(List.of(fileDetail));
+        Mockito.when(chunkDetailService.list(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class))).thenReturn(List.of(chunkDetail));
+        Mockito.when(aiMessageService.listByIds(any())).thenReturn(Collections.emptyList());
+
+        mockMvc.perform(get("/api/reports/MR-100/visualization").param("sysCode", "SYS-A"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray())
+                .andExpect(jsonPath("$[0].filePath").value("src/Test.java"))
+                .andExpect(jsonPath("$[0].startLine").value(1))
+                .andExpect(jsonPath("$[0].endLine").value(2))
+                .andExpect(jsonPath("$[0].attribution").value("fuzzy"));
+    }
 }
+

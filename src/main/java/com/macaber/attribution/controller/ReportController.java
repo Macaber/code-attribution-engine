@@ -14,6 +14,15 @@ import com.macaber.attribution.core.queue.QueueProducer;
 import com.macaber.attribution.core.AttributionFilter;
 import com.macaber.attribution.dto.AttributionJobData;
 import com.macaber.attribution.dto.MergeFileDetail;
+import com.macaber.attribution.dto.ChunkVisualizationDto;
+import com.macaber.attribution.dto.MatchedMessageVisualizationDto;
+import com.macaber.attribution.core.DiffChunk;
+import com.macaber.attribution.core.DiffParser;
+import com.macaber.attribution.core.SimilarityEngine;
+import com.macaber.attribution.core.EvaluationResult;
+import com.macaber.attribution.service.AiMessageService;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -39,6 +48,10 @@ public class ReportController {
     private final AttributionFileDetailService fileDetailService;
     private final QueueProducer queueProducer;
     private final AttributionFilter attributionFilter;
+    private final SimilarityEngine similarityEngine;
+    private final AiMessageService aiMessageService;
+    private final ObjectMapper objectMapper;
+
 
     /**
      * GET /api/reports
@@ -366,6 +379,154 @@ public class ReportController {
                 "message", "Recalculation job queued"
         ));
     }
+
+    /**
+     * GET /api/reports/{mergeId}/visualization
+     * Query detailed chunk-level trace for visualization.
+     */
+    @GetMapping("/{mergeId}/visualization")
+    public ResponseEntity<?> getReportVisualization(
+            @PathVariable("mergeId") String mergeId,
+            @RequestParam(value = "sysCode", required = false) String sysCode) {
+        log.info("[ReportController] getReportVisualization — mergeId: {}, sysCode: {}", mergeId, sysCode);
+        if (mergeId == null || mergeId.trim().isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "mergeId is required"));
+        }
+
+        LambdaQueryWrapper<AttributionResult> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(AttributionResult::getMergeId, mergeId);
+        if (sysCode != null && !sysCode.trim().isEmpty()) {
+            queryWrapper.eq(AttributionResult::getSysCode, sysCode.trim());
+        }
+
+        AttributionResult report = resultService.getOne(queryWrapper);
+        if (report == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", "Report not found for mergeId: " + mergeId));
+        }
+
+        List<AttributionChunkDetail> chunkDetails = chunkDetailService.list(
+                new LambdaQueryWrapper<AttributionChunkDetail>()
+                        .eq(AttributionChunkDetail::getReportId, report.getId())
+        );
+
+        List<AttributionFileDetail> fileDetails = fileDetailService.list(
+                new LambdaQueryWrapper<AttributionFileDetail>()
+                        .eq(AttributionFileDetail::getReportId, report.getId())
+        );
+
+        DiffParser diffParser = new DiffParser();
+        List<ChunkVisualizationDto> vizDetails = new ArrayList<>();
+
+        for (AttributionFileDetail file : fileDetails) {
+            if (file.getDiff() == null || file.getDiff().trim().isEmpty()) {
+                continue;
+            }
+
+            List<DiffChunk> chunks = diffParser.parse(file.getDiff());
+            int fileAddedLineCount = chunks.stream()
+                    .mapToInt(c -> c.getEndLine() - c.getStartLine() + 1)
+                    .sum();
+
+            for (DiffChunk chunk : chunks) {
+                String explicitPath = file.getFilePath() != null ? file.getFilePath() : chunk.getFilePath();
+
+                // Find corresponding AttributionChunkDetail
+                AttributionChunkDetail detail = chunkDetails.stream()
+                        .filter(d -> d.getFilePath().equals(explicitPath)
+                                && d.getStartLine().equals(chunk.getStartLine())
+                                && d.getEndLine().equals(chunk.getEndLine()))
+                        .findFirst()
+                        .orElse(null);
+
+                List<MatchedMessageVisualizationDto> matchedMessages = new ArrayList<>();
+                Set<Integer> overallContributedLines = new HashSet<>();
+
+                String matchedIdsStr = detail != null ? detail.getMatchedMessageIds() : null;
+                if (matchedIdsStr != null && !matchedIdsStr.trim().isEmpty()) {
+                    String[] messageIds = matchedIdsStr.split(",");
+                    List<Long> ids = new ArrayList<>();
+                    for (String idStr : messageIds) {
+                        try {
+                            ids.add(Long.parseLong(idStr.trim()));
+                        } catch (NumberFormatException e) {
+                            // ignore
+                        }
+                    }
+
+                    if (!ids.isEmpty()) {
+                        List<AiMessage> aiMessages = aiMessageService.listByIds(ids);
+                        for (AiMessage aiMsg : aiMessages) {
+                            String rawContent = "";
+                            try {
+                                Map<String, Object> args = objectMapper.readValue(aiMsg.getFunctionArguments(),
+                                        new TypeReference<Map<String, Object>>() {});
+                                if ("edit".equals(aiMsg.getFunctionName()) && args.containsKey("newString")) {
+                                    rawContent = (String) args.get("newString");
+                                } else if ("write".equals(aiMsg.getFunctionName()) && args.containsKey("content")) {
+                                    rawContent = (String) args.get("content");
+                                }
+                            } catch (Exception e) {
+                                log.warn("[ReportController] Failed to parse arguments for ai message {}", aiMsg.getId());
+                            }
+
+                            if (rawContent != null && !rawContent.trim().isEmpty()) {
+                                SimilarityEngine.EvaluationContext ctx = SimilarityEngine.EvaluationContext.builder()
+                                        .fileContent(file.getCode())
+                                        .filePath(explicitPath)
+                                        .addedLineCount(fileAddedLineCount)
+                                        .chunkStartLine(chunk.getStartLine())
+                                        .chunkEndLine(chunk.getEndLine())
+                                        .build();
+
+                                EvaluationResult evalResult = similarityEngine.evaluateChunk(
+                                        rawContent, chunk.getContent(), ctx
+                                );
+
+                                Set<Integer> indices = evalResult.getContributedLineIndices();
+                                if (indices == null) {
+                                    indices = new HashSet<>();
+                                }
+
+                                overallContributedLines.addAll(indices);
+
+                                matchedMessages.add(MatchedMessageVisualizationDto.builder()
+                                        .messageId(String.valueOf(aiMsg.getId()))
+                                        .rawContent(rawContent)
+                                        .fileName(aiMsg.getFileName())
+                                        .timestamp(aiMsg.getCreatedAt())
+                                        .score(evalResult.getScore())
+                                        .matchType(evalResult.getMatchType().name())
+                                        .contributedLineIndices(indices)
+                                        .lineMatches(evalResult.getLineMatches())
+                                        .build());
+                            }
+                        }
+                    }
+                }
+
+                // Sort matched messages by score descending
+                matchedMessages.sort((a, b) -> Double.compare(b.getScore(), a.getScore()));
+
+                vizDetails.add(ChunkVisualizationDto.builder()
+                        .filePath(explicitPath)
+                        .startLine(chunk.getStartLine())
+                        .endLine(chunk.getEndLine())
+                        .userId(chunk.getUserId())
+                        .attribution(detail != null ? detail.getAttribution() : "none")
+                        .score(detail != null && detail.getScore() != null ? detail.getScore() : 0.0)
+                        .matchType(detail != null && detail.getMatchType() != null ? detail.getMatchType() : "NONE")
+                        .level(detail != null && detail.getLevel() != null ? detail.getLevel() : "FAILED_ALL")
+                        .chunkContent(chunk.getContent())
+                        .contributedLineIndices(overallContributedLines)
+                        .matchedMessages(matchedMessages)
+                        .build());
+            }
+        }
+
+        return ResponseEntity.ok(vizDetails);
+    }
+
 
     /**
      * Inner helper class for calculating message breakdowns.

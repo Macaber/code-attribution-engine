@@ -5,6 +5,8 @@ import lombok.Data;
 import java.util.Map;
 import java.util.Set;
 import java.util.HashSet;
+import java.util.List;
+import java.util.ArrayList;
 
 /**
  * Result from the escalation pipeline's evaluateChunk().
@@ -34,4 +36,10 @@ public class EvaluationResult {
      */
     @Builder.Default
     private Set<Integer> contributedLineIndices = new HashSet<>();
+    /**
+     * Line-by-line mapping between chunk line index and AI message line index.
+     * Each map contains keys "chunkLineIdx" and "aiLineIdx".
+     */
+    @Builder.Default
+    private List<Map<String, Integer>> lineMatches = new ArrayList<>();
 }
