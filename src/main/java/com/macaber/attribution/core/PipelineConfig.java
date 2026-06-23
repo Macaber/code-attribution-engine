@@ -77,6 +77,9 @@ public class PipelineConfig {
     @Value("${attribution.l2.filter-trivial.enabled:false}")
     private boolean filterTrivialEnabled = false;
 
+    @Value("${attribution.worker.single-line-threshold:20}")
+    private int singleLineThreshold = 20;
+
     @Value("${attribution.l2.filter-trivial.lines:{,}}")
     private List<String> trivialLines = java.util.Arrays.asList("{", "}");
 

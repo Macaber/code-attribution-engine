@@ -10,6 +10,10 @@ import com.macaber.attribution.entity.AttributionFileDetail;
 import com.macaber.attribution.service.AttributionChunkDetailService;
 import com.macaber.attribution.service.AttributionResultService;
 import com.macaber.attribution.service.AttributionFileDetailService;
+import com.macaber.attribution.core.queue.QueueProducer;
+import com.macaber.attribution.core.AttributionFilter;
+import com.macaber.attribution.dto.AttributionJobData;
+import com.macaber.attribution.dto.MergeFileDetail;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -33,6 +37,8 @@ public class ReportController {
     private final AttributionResultService resultService;
     private final AttributionChunkDetailService chunkDetailService;
     private final AttributionFileDetailService fileDetailService;
+    private final QueueProducer queueProducer;
+    private final AttributionFilter attributionFilter;
 
     /**
      * GET /api/reports
@@ -298,6 +304,67 @@ public class ReportController {
         );
 
         return ResponseEntity.ok(files);
+    }
+
+    /**
+     * POST /api/reports/{id}/recalculate
+     * Recalculate AI generated ratio based on reportId.
+     */
+    @PostMapping("/{id}/recalculate")
+    public ResponseEntity<?> recalculateReport(
+            @PathVariable("id") Long id,
+            @RequestParam(value = "timeframeDays", required = false) Integer timeframeDays) {
+        log.info("[ReportController] recalculateReport — id: {}, timeframeDays: {}", id, timeframeDays);
+        AttributionResult report = resultService.getById(id);
+        if (report == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", "Report not found for id: " + id));
+        }
+
+        List<AttributionFileDetail> fileDetails = fileDetailService.list(
+                new LambdaQueryWrapper<AttributionFileDetail>()
+                        .eq(AttributionFileDetail::getReportId, id)
+        );
+
+        List<MergeFileDetail> mergeFileDetails = fileDetails.stream()
+                .map(f -> {
+                    MergeFileDetail mergeDetail = new MergeFileDetail();
+                    mergeDetail.setPath(f.getFilePath());
+                    mergeDetail.setCode(f.getCode());
+                    mergeDetail.setDiff(f.getDiff());
+                    return mergeDetail;
+                })
+                .filter(f -> f.getDiff() != null && !f.getDiff().trim().isEmpty())
+                .filter(f -> !attributionFilter.shouldFilter(f))
+                .collect(Collectors.toList());
+
+        if (mergeFileDetails.isEmpty()) {
+            return ResponseEntity.ok(Map.of(
+                    "status", "skipped",
+                    "reportId", id,
+                    "message", "No file diffs to analyze"));
+        }
+
+        AttributionJobData jobData = AttributionJobData.builder()
+                .mergeId(report.getMergeId())
+                .reportId(report.getId())
+                .repoName(report.getRepoName())
+                .userId(report.getUserId())
+                .sysCode(report.getSysCode())
+                .title(report.getTitle())
+                .source(report.getSource())
+                .target(report.getTarget())
+                .fileDetails(mergeFileDetails)
+                .timeframeDays(timeframeDays)
+                .build();
+
+        queueProducer.addJob(jobData);
+
+        return ResponseEntity.accepted().body(Map.of(
+                "status", "accepted",
+                "reportId", id,
+                "message", "Recalculation job queued"
+        ));
     }
 
     /**

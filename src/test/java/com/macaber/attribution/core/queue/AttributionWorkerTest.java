@@ -3,7 +3,10 @@ package com.macaber.attribution.core.queue;
 import org.junit.jupiter.api.Test;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
+import com.macaber.attribution.core.*;
+import com.macaber.attribution.dto.*;
 
 class AttributionWorkerTest {
 
@@ -113,5 +116,75 @@ class AttributionWorkerTest {
         assertFalse(worker.isSameFileName("src/Normalizer.java", "src/SimilarityEngine.java"));
         assertFalse(worker.isSameFileName(null, "Normalizer.java"));
         assertFalse(worker.isSameFileName("Normalizer.java", null));
+    }
+
+    @Test
+    void testProcessChunk_SingleLineThresholdMatch() {
+        // Setup mocks
+        org.redisson.api.RedissonClient redissonClient = org.mockito.Mockito.mock(org.redisson.api.RedissonClient.class);
+        SimilarityEngine similarityEngine = org.mockito.Mockito.mock(SimilarityEngine.class);
+        com.macaber.attribution.service.AiMessageService aiMessageService = org.mockito.Mockito.mock(com.macaber.attribution.service.AiMessageService.class);
+        com.macaber.attribution.service.AttributionResultService resultService = org.mockito.Mockito.mock(com.macaber.attribution.service.AttributionResultService.class);
+        com.macaber.attribution.service.AttributionChunkDetailService chunkDetailService = org.mockito.Mockito.mock(com.macaber.attribution.service.AttributionChunkDetailService.class);
+        com.macaber.attribution.service.AttributionFailedJobService failedJobService = org.mockito.Mockito.mock(com.macaber.attribution.service.AttributionFailedJobService.class);
+        com.fasterxml.jackson.databind.ObjectMapper objectMapper = org.mockito.Mockito.mock(com.fasterxml.jackson.databind.ObjectMapper.class);
+        
+        PipelineConfig pipelineConfig = org.mockito.Mockito.mock(PipelineConfig.class);
+        PipelineConfig.MultiMessageConfig multiMessageConfig = org.mockito.Mockito.mock(PipelineConfig.MultiMessageConfig.class);
+        org.mockito.Mockito.when(pipelineConfig.getMultiMessage()).thenReturn(multiMessageConfig);
+        org.mockito.Mockito.when(multiMessageConfig.getThreshold()).thenReturn(0.80);
+        org.mockito.Mockito.when(multiMessageConfig.getMinLines()).thenReturn(3);
+        org.mockito.Mockito.when(pipelineConfig.getSingleLineThreshold()).thenReturn(20);
+
+        AttributionWorker worker = new AttributionWorker(
+                redissonClient, similarityEngine, aiMessageService, resultService,
+                chunkDetailService, failedJobService, objectMapper, pipelineConfig
+        );
+
+        // Build 1-line chunk with length >= 20
+        DiffChunk diffChunk = new DiffChunk();
+        diffChunk.setContent("public class MyClassTest {\n");
+        diffChunk.setStartLine(1);
+        diffChunk.setEndLine(1);
+        diffChunk.setFilePath("MyClassTest.java");
+        diffChunk.setUserId("user1");
+        diffChunk.setNonBlankLineCount(1);
+
+        EnrichedChunk enrichedChunk = new EnrichedChunk(
+                diffChunk, "public class MyClassTest {\n", 1, "MyClassTest.java"
+        );
+
+        // Build matching AI message
+        AiMessageDto aiMessageDto = AiMessageDto.builder()
+                .messageId("msg-abc")
+                .userId("user1")
+                .rawContent("public class MyClassTest {")
+                .build();
+
+        AttributionWorker.NormalizedAiMessage normalizedAiMessage = new AttributionWorker.NormalizedAiMessage(
+                aiMessageDto, "publicclassmyclasstest{", 
+                new Normalizer().normalizeToLines("public class MyClassTest {")
+        );
+
+        // Setup similarityEngine mock response
+        EvaluationResult evaluationResult = EvaluationResult.builder()
+                .score(1.0)
+                .matchType(MatchType.FUZZY)
+                .level(PipelineLevel.L2)
+                .details(new java.util.HashMap<>())
+                .exactContributedLines(1)
+                .contributedLineIndices(java.util.Set.of(0))
+                .build();
+        org.mockito.Mockito.when(similarityEngine.evaluateChunk(
+                org.mockito.Mockito.anyString(), org.mockito.Mockito.anyString(), org.mockito.Mockito.any()
+        )).thenReturn(evaluationResult);
+
+        // Run
+        MatchResult matchResult = worker.processChunk(enrichedChunk, List.of(normalizedAiMessage));
+
+        // Verify
+        assertEquals("fuzzy", matchResult.getAttribution());
+        assertEquals(1.0, matchResult.getContributedLines());
+        assertEquals("msg-abc", matchResult.getMatchedMessageIds());
     }
 }

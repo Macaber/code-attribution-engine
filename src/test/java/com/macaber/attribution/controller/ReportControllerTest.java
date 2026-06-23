@@ -20,7 +20,10 @@ import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import com.macaber.attribution.core.queue.QueueProducer;
+import com.macaber.attribution.core.AttributionFilter;
 
 @WebMvcTest(ReportController.class)
 class ReportControllerTest {
@@ -36,6 +39,12 @@ class ReportControllerTest {
 
     @MockBean
     private AttributionFileDetailService fileDetailService;
+
+    @MockBean
+    private QueueProducer queueProducer;
+
+    @MockBean
+    private AttributionFilter attributionFilter;
 
     @Test
     void testGetReportByMergeId_NotFound() throws Exception {
@@ -136,5 +145,107 @@ class ReportControllerTest {
                 .andExpect(jsonPath("$[0].filePath").value("Main.java"))
                 .andExpect(jsonPath("$[0].code").value("public class Main {}"))
                 .andExpect(jsonPath("$[0].diff").value("@@ -1,1 +1,1 @@"));
+    }
+
+    @Test
+    void testRecalculateReport_NotFound() throws Exception {
+        Mockito.when(resultService.getById(999L)).thenReturn(null);
+
+        mockMvc.perform(post("/api/reports/999/recalculate"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("Report not found for id: 999"));
+    }
+
+    @Test
+    void testRecalculateReport_Success() throws Exception {
+        AttributionResult report = AttributionResult.builder()
+                .id(1L)
+                .mergeId("MR-100")
+                .sysCode("SYS-A")
+                .repoName("my-repo")
+                .userId("user1")
+                .createdAt(LocalDateTime.now())
+                .build();
+
+        AttributionFileDetail fileDetail = AttributionFileDetail.builder()
+                .id(10L)
+                .reportId(1L)
+                .filePath("Main.java")
+                .code("public class Main {}")
+                .diff("@@ -1,1 +1,1 @@")
+                .build();
+
+        Mockito.when(resultService.getById(1L)).thenReturn(report);
+        Mockito.when(fileDetailService.list(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class))).thenReturn(List.of(fileDetail));
+        Mockito.when(attributionFilter.shouldFilter(any())).thenReturn(false);
+
+        mockMvc.perform(post("/api/reports/1/recalculate"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("accepted"))
+                .andExpect(jsonPath("$.reportId").value(1))
+                .andExpect(jsonPath("$.message").value("Recalculation job queued"));
+
+        Mockito.verify(queueProducer, Mockito.times(1)).addJob(any());
+    }
+
+    @Test
+    void testRecalculateReport_Skipped() throws Exception {
+        AttributionResult report = AttributionResult.builder()
+                .id(1L)
+                .mergeId("MR-100")
+                .sysCode("SYS-A")
+                .repoName("my-repo")
+                .userId("user1")
+                .createdAt(LocalDateTime.now())
+                .build();
+
+        AttributionFileDetail fileDetail = AttributionFileDetail.builder()
+                .id(10L)
+                .reportId(1L)
+                .filePath("Main.java")
+                .code("public class Main {}")
+                .diff("") // empty diff
+                .build();
+
+        Mockito.when(resultService.getById(1L)).thenReturn(report);
+        Mockito.when(fileDetailService.list(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class))).thenReturn(List.of(fileDetail));
+
+        mockMvc.perform(post("/api/reports/1/recalculate"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("skipped"))
+                .andExpect(jsonPath("$.message").value("No file diffs to analyze"));
+    }
+
+    @Test
+    void testRecalculateReport_WithTimeframeDays() throws Exception {
+        AttributionResult report = AttributionResult.builder()
+                .id(1L)
+                .mergeId("MR-100")
+                .sysCode("SYS-A")
+                .repoName("my-repo")
+                .userId("user1")
+                .createdAt(LocalDateTime.now())
+                .build();
+
+        AttributionFileDetail fileDetail = AttributionFileDetail.builder()
+                .id(10L)
+                .reportId(1L)
+                .filePath("Main.java")
+                .code("public class Main {}")
+                .diff("@@ -1,1 +1,1 @@")
+                .build();
+
+        Mockito.when(resultService.getById(1L)).thenReturn(report);
+        Mockito.when(fileDetailService.list(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class))).thenReturn(List.of(fileDetail));
+        Mockito.when(attributionFilter.shouldFilter(any())).thenReturn(false);
+
+        mockMvc.perform(post("/api/reports/1/recalculate").param("timeframeDays", "15"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.status").value("accepted"))
+                .andExpect(jsonPath("$.reportId").value(1));
+
+        Mockito.verify(queueProducer, Mockito.times(1)).addJob(org.mockito.ArgumentMatchers.argThat(job -> 
+                job.getTimeframeDays() != null && job.getTimeframeDays() == 15
+        ));
     }
 }

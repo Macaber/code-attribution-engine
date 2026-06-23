@@ -271,7 +271,7 @@ public class AttributionWorker {
             involvedUserIds.add(jobData.getUserId());
         }
 
-        List<AiMessageDto> aiMessages = fetchAiMessages(involvedUserIds);
+        List<AiMessageDto> aiMessages = fetchAiMessages(involvedUserIds, jobData.getTimeframeDays());
         log.info("[Worker] Fetched {} AI messages for users {} (mergeId: {})",
                 aiMessages.size(), involvedUserIds, jobData.getMergeId());
 
@@ -301,12 +301,13 @@ public class AttributionWorker {
      * Queries ai_messages table for edit/write function calls within the last month,
      * extracts the raw code content from function arguments.
      */
-    private List<AiMessageDto> fetchAiMessages(Set<String> userIds) {
+    private List<AiMessageDto> fetchAiMessages(Set<String> userIds, Integer timeframeDays) {
         if (userIds == null || userIds.isEmpty()) {
             return Collections.emptyList();
         }
 
-        LocalDateTime startTime = LocalDateTime.now().minusDays(aiMessageTimeframeDays);
+        int days = timeframeDays != null ? timeframeDays : aiMessageTimeframeDays;
+        LocalDateTime startTime = LocalDateTime.now().minusDays(days);
 
         LambdaQueryWrapper<AiMessage> queryWrapper = new LambdaQueryWrapper<>();
         queryWrapper.in(AiMessage::getUserOa, userIds)
@@ -374,7 +375,7 @@ public class AttributionWorker {
      *   4. Final exactContributedLines = union set size
      *   5. Best match = highest-scoring message (drives attribution classification)
      */
-    private MatchResult processChunk(EnrichedChunk chunk, List<NormalizedAiMessage> messages) {
+    MatchResult processChunk(EnrichedChunk chunk, List<NormalizedAiMessage> messages) {
         // Collect all qualifying message evaluations
         List<CandidateMatch> candidates = new ArrayList<>();
         CandidateMatch bestCandidate = null;
@@ -425,9 +426,20 @@ public class AttributionWorker {
             // Collect all messages with >= threshold contribution (L2 score basis) and >= minLines exact contribution
             Double l2Score = result.getDetails().get("l2LcsScore");
             double effectiveL2Score = l2Score != null ? l2Score : result.getScore();
+
+            boolean isSingleLineMatch = false;
+            if (chunkLineMapping.getNormalizedLines().size() == 1) {
+                String normLine = chunkLineMapping.getNormalizedLines().get(0);
+                if (normLine.length() >= pipelineConfig.getSingleLineThreshold()
+                        && result.getExactContributedLines() == 1) {
+                    isSingleLineMatch = true;
+                }
+            }
+
             if (result.getMatchType() != MatchType.NONE &&
                     (effectiveL2Score >= multiMsgThreshold ||
-                            result.getExactContributedLines() >= multiMsgMinLines)) {
+                            result.getExactContributedLines() >= multiMsgMinLines ||
+                            isSingleLineMatch)) {
                 candidates.add(new CandidateMatch(msg.original.getMessageId(), result));
             }
 
@@ -508,27 +520,22 @@ public class AttributionWorker {
         // Use union-merged line count instead of single-message count
         int unionContributedLines = mergedLineIndices.size();
 
-        switch (attribution) {
-            case "strict":
+        contributedLines = switch (attribution) {
+            case "strict" ->
                 // For strict match (L1 Winnowing fast-pass), we consider the entire chunk's valid lines as AI generated.
                 // It bypassed L2 LCS line tracing, so unionContributedLines might undercount due to thresholding.
-                contributedLines = chunk.getNonBlankLineCount() > 0 ? chunk.getNonBlankLineCount() : totalLines;
-                break;
-            case "fuzzy":
+                    chunk.getNonBlankLineCount() > 0 ? chunk.getNonBlankLineCount() : totalLines;
+            case "fuzzy" ->
                 // Fuzzy relies purely on exact traced lines (now union-merged)
-                contributedLines = unionContributedLines;
-                break;
-            case "deep_refactor":
+                    unionContributedLines;
+            case "deep_refactor" ->
                 // Deep refactor: max of union lines vs structural estimate
-                contributedLines = Math.max(
-                        unionContributedLines,
-                        totalLines * (bestCandidate != null ? bestCandidate.result.getScore() : 0)
-                );
-                break;
-            default:
-                contributedLines = 0;
-                break;
-        }
+                    Math.max(
+                            unionContributedLines,
+                            totalLines * bestCandidate.result.getScore()
+                    );
+            default -> 0;
+        };
 
         // ── Build matchedMessages array ──
         List<MatchResult.MessageContribution> matchedMessages = filteredCandidates.stream()
@@ -547,15 +554,13 @@ public class AttributionWorker {
                 .collect(Collectors.joining(","));
 
         MatchResult.BestMatch matchDetail = null;
-        if (bestCandidate != null) {
-            matchDetail = MatchResult.BestMatch.builder()
-                    .messageId(bestCandidate.messageId)
-                    .score(bestCandidate.result.getScore())
-                    .matchType(bestCandidate.result.getMatchType().name())
-                    .level(bestCandidate.result.getLevel().name())
-                    .details(bestCandidate.result.getDetails())
-                    .build();
-        }
+        matchDetail = MatchResult.BestMatch.builder()
+                .messageId(bestCandidate.messageId)
+                .score(bestCandidate.result.getScore())
+                .matchType(bestCandidate.result.getMatchType().name())
+                .level(bestCandidate.result.getLevel().name())
+                .details(bestCandidate.result.getDetails())
+                .build();
 
         return MatchResult.builder()
                 .chunk(chunk)
@@ -652,6 +657,12 @@ public class AttributionWorker {
 
         resultService.updateById(resultRecord);
 
+        // Delete old chunk details if recalculating
+        if (resultRecord.getId() != null) {
+            chunkDetailService.remove(new LambdaQueryWrapper<AttributionChunkDetail>()
+                    .eq(AttributionChunkDetail::getReportId, resultRecord.getId()));
+        }
+
         List<AttributionChunkDetail> chunkDetails = new ArrayList<>();
         for (MatchResult r : results) {
             AttributionChunkDetail detail = AttributionChunkDetail.builder()
@@ -720,7 +731,7 @@ public class AttributionWorker {
     /**
      * Pre-normalized AI message with LineMapping for reuse across chunks.
      */
-    private static class NormalizedAiMessage {
+    static class NormalizedAiMessage {
         final AiMessageDto original;
         final String normalizedContent;
         final LineMapping lineMapping;

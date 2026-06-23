@@ -26,4 +26,5 @@ public class AttributionJobData implements Serializable {
     private String source;
     private String target;
     private List<MergeFileDetail> fileDetails;
+    private Integer timeframeDays;
 }
