@@ -1,14 +1,20 @@
 // Application State
 let state = {
     reports: [],
-    selectedReport: null, // Full report details from /api/reports/{mergeId}
-    visualizationDetails: [], // Detailed chunk data from /api/reports/{mergeId}/visualization
+    selectedReport: null, // Full report details from /api/reports/{id}
+    visualizationDetails: [], // Detailed chunk data from /api/reports/{id}/visualization
     activeChunk: null, // Selected chunk object
     activeTab: 'all', // 'all' or specific messageId
     hoveredLineIdx: null,
     currentPage: 1,
     pageSize: 5,
-    totalPages: 1
+    totalPages: 1,
+    filters: {
+        userId: '',
+        repoName: '',
+        sysCode: ''
+    },
+    statsActiveDimension: 'sys-code'
 };
 
 // DOM Elements
@@ -112,6 +118,10 @@ function setupEventListeners() {
     searchBtn.addEventListener('click', () => {
         const query = reportSearchInput.value.trim();
         if (query) {
+            if (!/^\d+$/.test(query)) {
+                showToast('请输入有效的数字 Report ID 进行搜索');
+                return;
+            }
             loadReport(query);
         }
     });
@@ -120,10 +130,41 @@ function setupEventListeners() {
         if (e.key === 'Enter') {
             const query = reportSearchInput.value.trim();
             if (query) {
+                if (!/^\d+$/.test(query)) {
+                    showToast('请输入有效的数字 Report ID 进行搜索');
+                    return;
+                }
                 loadReport(query);
             }
         }
     });
+
+    // Sidebar Filters
+    const filterBtn = document.getElementById('filter-btn');
+    const filterUserId = document.getElementById('filter-user-id');
+    const filterRepoName = document.getElementById('filter-repo-name');
+    const filterSysCode = document.getElementById('filter-sys-code');
+
+    if (filterBtn) {
+        filterBtn.addEventListener('click', () => {
+            state.filters.userId = filterUserId.value.trim();
+            state.filters.repoName = filterRepoName.value.trim();
+            state.filters.sysCode = filterSysCode.value.trim();
+            state.currentPage = 1;
+            fetchReportsList();
+        });
+
+        const filterInputs = [filterUserId, filterRepoName, filterSysCode];
+        filterInputs.forEach(input => {
+            if (input) {
+                input.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        filterBtn.click();
+                    }
+                });
+            }
+        });
+    }
 
     toggleHighlightAll.addEventListener('change', () => {
         renderChunkCode();
@@ -136,12 +177,84 @@ function setupEventListeners() {
             hoverTooltip.style.top = e.clientY + 'px';
         }
     });
+
+    // Tab switching for Workspace vs Stats Dashboard
+    const navWorkspaceBtn = document.getElementById('nav-workspace-btn');
+    const navStatsBtn = document.getElementById('nav-stats-btn');
+    const workspaceSection = document.querySelector('.workspace');
+    const statsDashboardSection = document.querySelector('.stats-dashboard');
+
+    if (navWorkspaceBtn && navStatsBtn) {
+        navWorkspaceBtn.addEventListener('click', () => {
+            navStatsBtn.classList.remove('active');
+            navWorkspaceBtn.classList.add('active');
+            statsDashboardSection.classList.add('hidden');
+            workspaceSection.classList.remove('hidden');
+        });
+
+        navStatsBtn.addEventListener('click', () => {
+            navWorkspaceBtn.classList.remove('active');
+            navStatsBtn.classList.add('active');
+            workspaceSection.classList.add('hidden');
+            statsDashboardSection.classList.remove('hidden');
+            loadGlobalStats();
+        });
+    }
+
+    // Stats Dimension Tabs Switching
+    const dimensionTabs = document.querySelectorAll('.dimension-tab');
+    dimensionTabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            dimensionTabs.forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            state.statsActiveDimension = tab.getAttribute('data-dimension');
+            
+            // Update table title
+            const titleEl = document.getElementById('stats-table-title');
+            if (titleEl) {
+                titleEl.textContent = tab.textContent;
+            }
+            
+            loadGlobalStats();
+        });
+    });
+
+    // Stats Date Range Filter Controls
+    const queryStatsBtn = document.getElementById('query-stats-btn');
+    const resetStatsBtn = document.getElementById('reset-stats-btn');
+    const statsStartDate = document.getElementById('stats-start-date');
+    const statsEndDate = document.getElementById('stats-end-date');
+
+    if (queryStatsBtn) {
+        queryStatsBtn.addEventListener('click', () => {
+            loadGlobalStats();
+        });
+    }
+
+    if (resetStatsBtn) {
+        resetStatsBtn.addEventListener('click', () => {
+            if (statsStartDate) statsStartDate.value = '';
+            if (statsEndDate) statsEndDate.value = '';
+            loadGlobalStats();
+        });
+    }
 }
 
 // Fetch list of recent reports for selector
 async function fetchReportsList() {
     try {
-        const response = await fetch(`/api/reports?page=${state.currentPage}&pageSize=${state.pageSize}`);
+        let relativeUrl = `api/reports?page=${state.currentPage}&pageSize=${state.pageSize}`;
+        if (state.filters.userId) {
+            relativeUrl += `&userId=${encodeURIComponent(state.filters.userId)}`;
+        }
+        if (state.filters.repoName) {
+            relativeUrl += `&repoName=${encodeURIComponent(state.filters.repoName)}`;
+        }
+        if (state.filters.sysCode) {
+            relativeUrl += `&sysCode=${encodeURIComponent(state.filters.sysCode)}`;
+        }
+        
+        const response = await fetch(relativeUrl);
         if (!response.ok) throw new Error('无法获取报告列表');
         const result = await response.json();
         
@@ -174,7 +287,7 @@ function renderReportList() {
     state.reports.forEach(report => {
         const item = document.createElement('div');
         item.className = 'report-list-item';
-        if (state.selectedReport && state.selectedReport.report && state.selectedReport.report.mergeId === report.mergeId) {
+        if (state.selectedReport && state.selectedReport.report && state.selectedReport.report.id === report.id) {
             item.classList.add('active');
         }
 
@@ -187,7 +300,7 @@ function renderReportList() {
 
         item.innerHTML = `
             <div class="report-list-item-header">
-                <span class="report-list-item-id" title="${report.mergeId}">${report.mergeId}</span>
+                <span class="report-list-item-id" title="Report ID: ${report.id} / Merge ID: ${report.mergeId}">Report ID: ${report.id}</span>
                 <span class="badge ${ratioColorClass}" style="font-size: 10px">${ratioPct} AI</span>
             </div>
             <div class="report-list-item-meta">
@@ -199,7 +312,7 @@ function renderReportList() {
         item.addEventListener('click', () => {
             document.querySelectorAll('.report-list-item').forEach(el => el.classList.remove('active'));
             item.classList.add('active');
-            loadReport(report.mergeId);
+            loadReport(report.id);
         });
 
         reportList.appendChild(item);
@@ -221,14 +334,14 @@ function resetReportView() {
 }
 
 // Load report metadata and detailed visualization payload
-async function loadReport(mergeId) {
+async function loadReport(idOrMergeId) {
     showLoadingTree();
     try {
         // 1. Fetch metadata report info
-        const metaResponse = await fetch(`/api/reports/${encodeURIComponent(mergeId)}`);
+        const metaResponse = await fetch(`api/reports/${encodeURIComponent(idOrMergeId)}`);
         if (!metaResponse.ok) {
             if (metaResponse.status === 404) {
-                throw new Error('未找到该 Merge ID 对应的归因报告');
+                throw new Error('未找到该 ID 对应的归因报告');
             }
             throw new Error('获取报告摘要失败');
         }
@@ -239,10 +352,10 @@ async function loadReport(mergeId) {
         renderReportList();
 
         // Update Report Search Input
-        reportSearchInput.value = mergeId;
+        reportSearchInput.value = state.selectedReport.report.id;
 
         // 2. Fetch visualization tracing payload
-        const vizResponse = await fetch(`/api/reports/${encodeURIComponent(mergeId)}/visualization`);
+        const vizResponse = await fetch(`api/reports/${encodeURIComponent(idOrMergeId)}/visualization`);
         if (!vizResponse.ok) throw new Error('无法加载行级覆盖计算数据');
         state.visualizationDetails = await vizResponse.json();
 
@@ -275,6 +388,48 @@ function renderSummaryCard() {
     summaryRepo.textContent = report.repoName;
     summaryAuthor.textContent = report.userId;
     summaryTime.textContent = new Date(report.createdAt).toLocaleString('zh-CN');
+    
+    // Group and calculate stats by chunk developer/author
+    const chunkDetails = state.selectedReport.chunkDetails || [];
+    const authorStats = {}; // { userId: { analyzed: 0, contributed: 0 } }
+    
+    chunkDetails.forEach(chunk => {
+        const author = chunk.userId || '未知作者';
+        if (!authorStats[author]) {
+            authorStats[author] = { analyzed: 0, contributed: 0 };
+        }
+        authorStats[author].analyzed += chunk.analyzedLines || 0;
+        authorStats[author].contributed += chunk.contributedLines || 0.0;
+    });
+    
+    const breakdownContainer = document.getElementById('summary-author-breakdown');
+    if (breakdownContainer) {
+        breakdownContainer.innerHTML = '';
+        
+        const authors = Object.keys(authorStats);
+        if (authors.length > 0) {
+            const title = document.createElement('h4');
+            title.textContent = '按代码提交人统计';
+            breakdownContainer.appendChild(title);
+            
+            authors.forEach(author => {
+                const stats = authorStats[author];
+                const ratioVal = stats.analyzed > 0 ? (stats.contributed / stats.analyzed) : 0.0;
+                
+                let ratioColorClass = 'color-none';
+                if (ratioVal >= 0.75) ratioColorClass = 'color-strict';
+                else if (ratioVal >= 0.25) ratioColorClass = 'color-fuzzy';
+                
+                const item = document.createElement('div');
+                item.className = 'author-breakdown-item';
+                item.innerHTML = `
+                    <span class="author-breakdown-name" title="${author}">${author}</span>
+                    <span class="author-breakdown-ratio ${ratioColorClass}">${(ratioVal * 100).toFixed(1)}% AI (${stats.contributed.toFixed(0)}/${stats.analyzed} 行)</span>
+                `;
+                breakdownContainer.appendChild(item);
+            });
+        }
+    }
     
     reportSummaryCard.classList.remove('hidden');
 }
@@ -785,3 +940,105 @@ window.addEventListener('resize', () => {
         drawConnectionLines(state.hoveredLineIdx);
     }
 });
+
+// Fetch and render the global aggregated statistics
+async function loadGlobalStats() {
+    const table = document.getElementById('dynamic-stats-table');
+    const thead = table ? table.querySelector('thead') : null;
+    const tbody = table ? table.querySelector('tbody') : null;
+    
+    const statsTotalReports = document.getElementById('stats-total-reports');
+    const statsTotalLines = document.getElementById('stats-total-lines');
+    const statsTotalAiLines = document.getElementById('stats-total-ai-lines');
+    const statsOverallRatio = document.getElementById('stats-overall-ratio');
+
+    const startDateVal = document.getElementById('stats-start-date')?.value || '';
+    const endDateVal = document.getElementById('stats-end-date')?.value || '';
+
+    // Show loading indicator
+    if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="text-center">正在加载数据...</td></tr>';
+
+    try {
+        // 1. Fetch overall summary statistics for timeframe
+        let summaryUrl = `api/reports/stats/summary?`;
+        if (startDateVal) summaryUrl += `startDate=${encodeURIComponent(startDateVal)}&`;
+        if (endDateVal) summaryUrl += `endDate=${encodeURIComponent(endDateVal)}&`;
+        
+        const summaryRes = await fetch(summaryUrl);
+        if (summaryRes.ok) {
+            const summaryData = await summaryRes.json();
+            if (statsTotalReports) statsTotalReports.textContent = summaryData.totalReports || 0;
+            if (statsTotalLines) statsTotalLines.textContent = summaryData.totalAnalyzedLines || 0;
+            if (statsTotalAiLines) statsTotalAiLines.textContent = Math.round(summaryData.totalAiContributedLines) || 0;
+            
+            const overallRatio = summaryData.totalAnalyzedLines > 0 
+                ? (summaryData.totalAiContributedLines / summaryData.totalAnalyzedLines * 100).toFixed(1) + '%' 
+                : '0.0%';
+            if (statsOverallRatio) statsOverallRatio.textContent = overallRatio;
+        }
+
+        // 2. Setup correct headers and fetch active dimension breakdown data
+        if (thead && tbody) {
+            let firstColHeader = '系统代码';
+            if (state.statsActiveDimension === 'repo-name') {
+                firstColHeader = '仓库名称';
+            } else if (state.statsActiveDimension === 'developer') {
+                firstColHeader = '代码提交人';
+            }
+            
+            thead.innerHTML = `
+                <tr>
+                    <th>${firstColHeader}</th>
+                    <th>分析行数</th>
+                    <th>AI 贡献行数</th>
+                    <th>AI 占比</th>
+                </tr>
+            `;
+
+            let breakdownUrl = `api/reports/stats/breakdown?groupBy=${state.statsActiveDimension}&`;
+            if (startDateVal) breakdownUrl += `startDate=${encodeURIComponent(startDateVal)}&`;
+            if (endDateVal) breakdownUrl += `endDate=${encodeURIComponent(endDateVal)}&`;
+            
+            const breakdownRes = await fetch(breakdownUrl);
+            if (!breakdownRes.ok) throw new Error('无法加载出码率明细统计');
+            
+            const breakdown = await breakdownRes.json();
+            tbody.innerHTML = '';
+            
+            if (breakdown.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center">该时间段内暂无数据</td></tr>';
+            } else {
+                breakdown.forEach(item => {
+                    const ratioVal = item.aiRatio;
+                    const ratioPct = (ratioVal * 100).toFixed(1) + '%';
+                    const fillWidth = (ratioVal * 100).toFixed(0) + '%';
+                    
+                    let ratioColorClass = 'color-none';
+                    if (ratioVal >= 0.75) ratioColorClass = 'color-strict';
+                    else if (ratioVal >= 0.25) ratioColorClass = 'color-fuzzy';
+
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td style="font-weight: 600;">${item.name}</td>
+                        <td>${item.analyzedLines} 行</td>
+                        <td>${item.aiContributedLines.toFixed(0)} 行</td>
+                        <td>
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span class="${ratioColorClass}" style="font-weight: 600; width: 50px;">${ratioPct}</span>
+                                <div style="flex: 1; height: 6px; background: var(--bg-tab); border-radius: 3px; overflow: hidden; min-width: 80px; max-width: 200px;">
+                                    <div style="height: 100%; width: ${fillWidth}; background: var(--accent-indigo); border-radius: 3px;"></div>
+                                </div>
+                            </div>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            }
+        }
+
+    } catch (err) {
+        console.error(err);
+        showToast('加载出码率汇总统计失败: ' + err.message);
+        if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="text-center text-error">⚠️ ${err.message}</td></tr>`;
+    }
+}

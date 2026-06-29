@@ -55,16 +55,16 @@ class ReportControllerTest {
 
 
     @Test
-    void testGetReportByMergeId_NotFound() throws Exception {
-        Mockito.when(resultService.getOne(any())).thenReturn(null);
+    void testGetReportById_NotFound() throws Exception {
+        Mockito.when(resultService.getById(999L)).thenReturn(null);
 
-        mockMvc.perform(get("/api/reports/MR-NONEXISTENT"))
+        mockMvc.perform(get("/api/reports/999"))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.error").value("Report not found for mergeId: MR-NONEXISTENT"));
+                .andExpect(jsonPath("$.error").value("Report not found for id: 999"));
     }
 
     @Test
-    void testGetReportByMergeId_Success() throws Exception {
+    void testGetReportById_Success() throws Exception {
         AttributionResult report = AttributionResult.builder()
                 .id(1L)
                 .mergeId("MR-100")
@@ -82,10 +82,10 @@ class ReportControllerTest {
                 .attribution("fuzzy")
                 .build();
 
-        Mockito.when(resultService.getOne(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class))).thenReturn(report);
+        Mockito.when(resultService.getById(1L)).thenReturn(report);
         Mockito.when(chunkDetailService.list(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class))).thenReturn(List.of(detail));
 
-        mockMvc.perform(get("/api/reports/MR-100"))
+        mockMvc.perform(get("/api/reports/1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.report.mergeId").value("MR-100"))
                 .andExpect(jsonPath("$.chunkDetails[0].filePath").value("Main.java"))
@@ -94,7 +94,7 @@ class ReportControllerTest {
     }
 
     @Test
-    void testGetReportByMergeId_WithSysCode_Success() throws Exception {
+    void testGetReportById_WithSysCode_Success() throws Exception {
         AttributionResult report = AttributionResult.builder()
                 .id(1L)
                 .mergeId("MR-100")
@@ -115,10 +115,10 @@ class ReportControllerTest {
                 .attribution("fuzzy")
                 .build();
 
-        Mockito.when(resultService.getOne(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class))).thenReturn(report);
+        Mockito.when(resultService.getById(1L)).thenReturn(report);
         Mockito.when(chunkDetailService.list(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class))).thenReturn(List.of(detail));
 
-        mockMvc.perform(get("/api/reports/MR-100").param("sysCode", "SYS-A"))
+        mockMvc.perform(get("/api/reports/1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.report.mergeId").value("MR-100"))
                 .andExpect(jsonPath("$.report.sysCode").value("SYS-A"))
@@ -145,10 +145,10 @@ class ReportControllerTest {
                 .diff("@@ -1,1 +1,1 @@")
                 .build();
 
-        Mockito.when(resultService.getOne(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class))).thenReturn(report);
+        Mockito.when(resultService.getById(1L)).thenReturn(report);
         Mockito.when(fileDetailService.list(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class))).thenReturn(List.of(fileDetail));
 
-        mockMvc.perform(get("/api/reports/MR-100/files").param("sysCode", "SYS-A"))
+        mockMvc.perform(get("/api/reports/1/files"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].filePath").value("Main.java"))
                 .andExpect(jsonPath("$[0].code").value("public class Main {}"))
@@ -294,12 +294,12 @@ class ReportControllerTest {
                 .level("L2")
                 .build();
 
-        Mockito.when(resultService.getOne(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class))).thenReturn(report);
+        Mockito.when(resultService.getById(1L)).thenReturn(report);
         Mockito.when(fileDetailService.list(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class))).thenReturn(List.of(fileDetail));
         Mockito.when(chunkDetailService.list(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class))).thenReturn(List.of(chunkDetail));
         Mockito.when(aiMessageService.listByIds(any())).thenReturn(Collections.emptyList());
 
-        mockMvc.perform(get("/api/reports/MR-100/visualization").param("sysCode", "SYS-A"))
+        mockMvc.perform(get("/api/reports/1/visualization"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isArray())
                 .andExpect(jsonPath("$[0].filePath").value("src/Test.java"))

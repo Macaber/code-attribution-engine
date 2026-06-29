@@ -224,26 +224,18 @@ public class ReportController {
      * GET /api/reports/{mergeId}
      * Query single report detail including chunk details and message breakdowns.
      */
-    @GetMapping("/{mergeId}")
-    public ResponseEntity<?> getReportByMergeId(
-            @PathVariable("mergeId") String mergeId,
-            @RequestParam(value = "sysCode", required = false) String sysCode) {
-        log.info("[ReportController] getReportByMergeId — mergeId: {}, sysCode: {}", mergeId, sysCode);
-        if (mergeId == null || mergeId.trim().isEmpty()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "mergeId is required"));
+    @GetMapping("/{id}")
+    public ResponseEntity<?> getReportById(@PathVariable("id") Long id) {
+        log.info("[ReportController] getReportById — id: {}", id);
+        if (id == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "id is required"));
         }
 
-        LambdaQueryWrapper<AttributionResult> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(AttributionResult::getMergeId, mergeId);
-        if (sysCode != null && !sysCode.trim().isEmpty()) {
-            queryWrapper.eq(AttributionResult::getSysCode, sysCode.trim());
-        }
-
-        AttributionResult report = resultService.getOne(queryWrapper);
+        AttributionResult report = resultService.getById(id);
 
         if (report == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", "Report not found for mergeId: " + mergeId));
+                    .body(Map.of("error", "Report not found for id: " + id));
         }
 
         List<AttributionChunkDetail> chunkDetails = chunkDetailService.list(
@@ -290,25 +282,17 @@ public class ReportController {
      * GET /api/reports/{mergeId}/files
      * Query original files (path, code, diff) associated with a report.
      */
-    @GetMapping("/{mergeId}/files")
-    public ResponseEntity<?> getReportFiles(
-            @PathVariable("mergeId") String mergeId,
-            @RequestParam(value = "sysCode", required = false) String sysCode) {
-        log.info("[ReportController] getReportFiles — mergeId: {}, sysCode: {}", mergeId, sysCode);
-        if (mergeId == null || mergeId.trim().isEmpty()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "mergeId is required"));
+    @GetMapping("/{id}/files")
+    public ResponseEntity<?> getReportFiles(@PathVariable("id") Long id) {
+        log.info("[ReportController] getReportFiles — id: {}", id);
+        if (id == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "id is required"));
         }
 
-        LambdaQueryWrapper<AttributionResult> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(AttributionResult::getMergeId, mergeId);
-        if (sysCode != null && !sysCode.trim().isEmpty()) {
-            queryWrapper.eq(AttributionResult::getSysCode, sysCode.trim());
-        }
-
-        AttributionResult report = resultService.getOne(queryWrapper);
+        AttributionResult report = resultService.getById(id);
         if (report == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", "Report not found for mergeId: " + mergeId));
+                    .body(Map.of("error", "Report not found for id: " + id));
         }
 
         List<AttributionFileDetail> files = fileDetailService.list(
@@ -384,25 +368,17 @@ public class ReportController {
      * GET /api/reports/{mergeId}/visualization
      * Query detailed chunk-level trace for visualization.
      */
-    @GetMapping("/{mergeId}/visualization")
-    public ResponseEntity<?> getReportVisualization(
-            @PathVariable("mergeId") String mergeId,
-            @RequestParam(value = "sysCode", required = false) String sysCode) {
-        log.info("[ReportController] getReportVisualization — mergeId: {}, sysCode: {}", mergeId, sysCode);
-        if (mergeId == null || mergeId.trim().isEmpty()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "mergeId is required"));
+    @GetMapping("/{id}/visualization")
+    public ResponseEntity<?> getReportVisualization(@PathVariable("id") Long id) {
+        log.info("[ReportController] getReportVisualization — id: {}", id);
+        if (id == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "id is required"));
         }
 
-        LambdaQueryWrapper<AttributionResult> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.eq(AttributionResult::getMergeId, mergeId);
-        if (sysCode != null && !sysCode.trim().isEmpty()) {
-            queryWrapper.eq(AttributionResult::getSysCode, sysCode.trim());
-        }
-
-        AttributionResult report = resultService.getOne(queryWrapper);
+        AttributionResult report = resultService.getById(id);
         if (report == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", "Report not found for mergeId: " + mergeId));
+                    .body(Map.of("error", "Report not found for id: " + id));
         }
 
         List<AttributionChunkDetail> chunkDetails = chunkDetailService.list(
@@ -527,11 +503,133 @@ public class ReportController {
         return ResponseEntity.ok(vizDetails);
     }
 
+    /**
+     * GET /api/reports/stats/breakdown
+     * Query aggregated stats grouped by sys_code, repo_name, or developer.
+     */
+    @GetMapping("/stats/breakdown")
+    public ResponseEntity<?> getStatsBreakdown(
+            @RequestParam("groupBy") String groupBy,
+            @RequestParam(value = "startDate", required = false) String startDate,
+            @RequestParam(value = "endDate", required = false) String endDate) {
+        log.info("[ReportController] getStatsBreakdown — groupBy: {}, startDate: {}, endDate: {}", groupBy, startDate, endDate);
+
+        if (groupBy == null || groupBy.trim().isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "groupBy is required"));
+        }
+
+        String target = groupBy.trim().toLowerCase();
+
+        if ("sys-code".equals(target) || "syscode".equals(target)) {
+            QueryWrapper<AttributionResult> sysWrapper = new QueryWrapper<>();
+            sysWrapper.select("sys_code as sysCode", "SUM(analyzed_lines) as totalAnalyzedLines", "SUM(ai_contributed_lines) as totalAiContributedLines")
+                    .groupBy("sys_code");
+            applyDateFilters(sysWrapper, startDate, endDate);
+
+            List<Map<String, Object>> sysList = resultService.listMaps(sysWrapper);
+            List<Map<String, Object>> sysBreakdown = new ArrayList<>();
+            for (Map<String, Object> map : sysList) {
+                if (map == null) continue;
+                String sysCode = map.get("sysCode") != null ? map.get("sysCode").toString() : "未知系统";
+                long analyzed = map.get("totalAnalyzedLines") != null ? ((Number) map.get("totalAnalyzedLines")).longValue() : 0;
+                double aiContributed = map.get("totalAiContributedLines") != null ? ((Number) map.get("totalAiContributedLines")).doubleValue() : 0.0;
+                double ratio = analyzed > 0 ? aiContributed / analyzed : 0.0;
+                sysBreakdown.add(Map.of(
+                        "name", sysCode,
+                        "analyzedLines", analyzed,
+                        "aiContributedLines", Math.round(aiContributed * 100.0) / 100.0,
+                        "aiRatio", Math.round(ratio * 10000.0) / 10000.0
+                ));
+            }
+            sysBreakdown.sort((a, b) -> Long.compare((Long) b.get("analyzedLines"), (Long) a.get("analyzedLines")));
+            return ResponseEntity.ok(sysBreakdown);
+
+        } else if ("repo-name".equals(target) || "reponame".equals(target)) {
+            QueryWrapper<AttributionResult> repoWrapper = new QueryWrapper<>();
+            repoWrapper.select("repo_name as repoName", "SUM(analyzed_lines) as totalAnalyzedLines", "SUM(ai_contributed_lines) as totalAiContributedLines")
+                    .groupBy("repo_name");
+            applyDateFilters(repoWrapper, startDate, endDate);
+
+            List<Map<String, Object>> repoList = resultService.listMaps(repoWrapper);
+            List<Map<String, Object>> repoBreakdown = new ArrayList<>();
+            for (Map<String, Object> map : repoList) {
+                if (map == null) continue;
+                String repoName = map.get("repoName") != null ? map.get("repoName").toString() : "未知仓库";
+                long analyzed = map.get("totalAnalyzedLines") != null ? ((Number) map.get("totalAnalyzedLines")).longValue() : 0;
+                double aiContributed = map.get("totalAiContributedLines") != null ? ((Number) map.get("totalAiContributedLines")).doubleValue() : 0.0;
+                double ratio = analyzed > 0 ? aiContributed / analyzed : 0.0;
+                repoBreakdown.add(Map.of(
+                        "name", repoName,
+                        "analyzedLines", analyzed,
+                        "aiContributedLines", Math.round(aiContributed * 100.0) / 100.0,
+                        "aiRatio", Math.round(ratio * 10000.0) / 10000.0
+                ));
+            }
+            repoBreakdown.sort((a, b) -> Long.compare((Long) b.get("analyzedLines"), (Long) a.get("analyzedLines")));
+            return ResponseEntity.ok(repoBreakdown);
+
+        } else if ("developer".equals(target) || "user-id".equals(target) || "userid".equals(target)) {
+            List<Map<String, Object>> authorBreakdown = new ArrayList<>();
+            QueryWrapper<AttributionChunkDetail> chunkWrapper = new QueryWrapper<>();
+
+            boolean hasDateFilter = (startDate != null && !startDate.trim().isEmpty())
+                    || (endDate != null && !endDate.trim().isEmpty());
+
+            if (hasDateFilter) {
+                QueryWrapper<AttributionResult> reportWrapper = new QueryWrapper<>();
+                reportWrapper.select("id");
+                applyDateFilters(reportWrapper, startDate, endDate);
+                List<Object> reportIds = resultService.listObjs(reportWrapper);
+                if (reportIds.isEmpty()) {
+                    return ResponseEntity.ok(authorBreakdown);
+                }
+                chunkWrapper.in("report_id", reportIds);
+            }
+
+            chunkWrapper.select("user_id as userId", "SUM(analyzed_lines) as totalAnalyzedLines", "SUM(contributed_lines) as totalAiContributedLines")
+                    .groupBy("user_id");
+            List<Map<String, Object>> chunkList = chunkDetailService.listMaps(chunkWrapper);
+            for (Map<String, Object> map : chunkList) {
+                if (map == null) continue;
+                String userId = map.get("userId") != null ? map.get("userId").toString() : "未知作者";
+                long analyzed = map.get("totalAnalyzedLines") != null ? ((Number) map.get("totalAnalyzedLines")).longValue() : 0;
+                double aiContributed = map.get("totalAiContributedLines") != null ? ((Number) map.get("totalAiContributedLines")).doubleValue() : 0.0;
+                double ratio = analyzed > 0 ? aiContributed / analyzed : 0.0;
+                authorBreakdown.add(Map.of(
+                        "name", userId,
+                        "analyzedLines", analyzed,
+                        "aiContributedLines", Math.round(aiContributed * 100.0) / 100.0,
+                        "aiRatio", Math.round(ratio * 10000.0) / 10000.0
+                ));
+            }
+            authorBreakdown.sort((a, b) -> Long.compare((Long) b.get("analyzedLines"), (Long) a.get("analyzedLines")));
+            return ResponseEntity.ok(authorBreakdown);
+
+        } else {
+            return ResponseEntity.badRequest().body(Map.of("error", "Invalid groupBy parameter. Must be sys-code, repo-name, or developer."));
+        }
+    }
+
+    private void applyDateFilters(QueryWrapper<?> queryWrapper, String startDate, String endDate) {
+        if (startDate != null && !startDate.trim().isEmpty()) {
+            String start = startDate.trim();
+            if (start.length() == 10) {
+                start += " 00:00:00";
+            }
+            queryWrapper.ge("created_at", start);
+        }
+        if (endDate != null && !endDate.trim().isEmpty()) {
+            String end = endDate.trim();
+            if (end.length() == 10) {
+                end += " 23:59:59";
+            }
+            queryWrapper.le("created_at", end);
+        }
+    }
 
     /**
      * Inner helper class for calculating message breakdowns.
      */
-
     private static class MessageBreakdownBuilder {
         private final String messageId;
         private double contributedLines = 0.0;
