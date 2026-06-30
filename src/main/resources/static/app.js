@@ -139,6 +139,41 @@ function setupEventListeners() {
         }
     });
 
+    // Recalculate Button Click Listener
+    const recalcBtn = document.getElementById('recalc-btn');
+    if (recalcBtn) {
+        recalcBtn.addEventListener('click', async () => {
+            const query = reportSearchInput.value.trim();
+            if (!query || !/^\d+$/.test(query)) {
+                showToast('请输入有效的数字 Report ID 进行重新计算');
+                return;
+            }
+            
+            try {
+                showToast('正在提交重新计算任务...');
+                const response = await fetch(`api/reports/${encodeURIComponent(query)}/recalculate`, {
+                    method: 'POST'
+                });
+                
+                if (!response.ok) {
+                    if (response.status === 404) {
+                        throw new Error('未找到该 ID 对应的报告');
+                    }
+                    throw new Error('提交重新计算失败');
+                }
+                
+                showToast('🔄 重新计算任务已提交，后台处理中，3秒后自动刷新数据...');
+                
+                setTimeout(() => {
+                    loadReport(query);
+                }, 3000);
+            } catch (err) {
+                console.error(err);
+                showToast('提交重新计算失败: ' + err.message);
+            }
+        });
+    }
+
     // Sidebar Filters
     const filterBtn = document.getElementById('filter-btn');
     const filterUserId = document.getElementById('filter-user-id');
@@ -183,6 +218,8 @@ function setupEventListeners() {
     const navStatsBtn = document.getElementById('nav-stats-btn');
     const workspaceSection = document.querySelector('.workspace');
     const statsDashboardSection = document.querySelector('.stats-dashboard');
+    const sidebarSection = document.querySelector('.sidebar');
+    const searchBarSection = document.querySelector('.report-search-bar');
 
     if (navWorkspaceBtn && navStatsBtn) {
         navWorkspaceBtn.addEventListener('click', () => {
@@ -190,6 +227,8 @@ function setupEventListeners() {
             navWorkspaceBtn.classList.add('active');
             statsDashboardSection.classList.add('hidden');
             workspaceSection.classList.remove('hidden');
+            if (sidebarSection) sidebarSection.classList.remove('hidden');
+            if (searchBarSection) searchBarSection.classList.remove('hidden');
         });
 
         navStatsBtn.addEventListener('click', () => {
@@ -197,6 +236,8 @@ function setupEventListeners() {
             navStatsBtn.classList.add('active');
             workspaceSection.classList.add('hidden');
             statsDashboardSection.classList.remove('hidden');
+            if (sidebarSection) sidebarSection.classList.add('hidden');
+            if (searchBarSection) searchBarSection.classList.add('hidden');
             loadGlobalStats();
         });
     }
