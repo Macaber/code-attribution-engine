@@ -34,6 +34,12 @@ public class AttributionFilter {
      * @param file the MergeFileDetail containing path, code, and diff
      * @return true if the file should be filtered out/skipped
      */
+    /**
+     * Determine if the file should be skipped.
+     *
+     * @param file the MergeFileDetail containing path, code, and diff
+     * @return true if the file should be filtered out/skipped
+     */
     public boolean shouldFilter(MergeFileDetail file) {
         if (!pipelineConfig.isFilterEnabled()) {
             return false;
@@ -63,7 +69,16 @@ public class AttributionFilter {
             }
         }
 
-        // 3. File size / Diff size limit
+        // 3. Bypass size/line/log filters for legitimate code extensions
+        if (pipelineConfig.getCodeExtensions() != null) {
+            for (String ext : pipelineConfig.getCodeExtensions()) {
+                if (ext.trim().equalsIgnoreCase(extension)) {
+                    return false;
+                }
+            }
+        }
+
+        // 4. File size / Diff size limit
         if (file.getCode() != null) {
             long sizeBytes = file.getCode().length();
             if (sizeBytes > (long) pipelineConfig.getMaxFileSizeKb() * 1024) {
@@ -81,7 +96,7 @@ public class AttributionFilter {
             }
         }
 
-        // 4. File line count limit
+        // 5. File line count limit
         if (file.getCode() != null) {
             int lineCount = countLines(file.getCode());
             if (lineCount > pipelineConfig.getMaxFileLines()) {
@@ -91,7 +106,7 @@ public class AttributionFilter {
             }
         }
 
-        // 5. Log file detection
+        // 6. Log file detection
         if (pipelineConfig.isFilterLogs()) {
             if (isLogFile(file)) {
                 log.info("[Filter] File skipped: {} is detected as log file/content", path);

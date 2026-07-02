@@ -92,6 +92,11 @@ public class PipelineConfig {
             "bin", "woff", "ttf", "class", "jar", "lock", "csv", "tsv", "xlsx"
     );
 
+    @Value("${attribution.filter.code-extensions:java,ts,js,vue,py,go,c,cpp,h,cs,php,rb,html,css,sql,sh,json,xml,yml,yaml}")
+    private List<String> codeExtensions = java.util.Arrays.asList(
+            "java", "ts", "js", "vue", "py", "go", "c", "cpp", "h", "cs", "php", "rb", "html", "css", "sql", "sh", "json", "xml", "yml", "yaml"
+    );
+
     @Value("${attribution.filter.max-file-size-kb:500}")
     private int maxFileSizeKb = 500;
 

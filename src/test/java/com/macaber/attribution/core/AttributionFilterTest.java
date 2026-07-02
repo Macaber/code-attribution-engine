@@ -87,7 +87,7 @@ class AttributionFilterTest {
     @Test
     void testShouldFilter_OverLimitFileSize() {
         MergeFileDetail file = new MergeFileDetail();
-        file.setPath("src/LargeFile.java");
+        file.setPath("src/LargeFile.data");
 
         // Build a string slightly over 500KB
         char[] chars = new char[501 * 1024];
@@ -101,7 +101,7 @@ class AttributionFilterTest {
     @Test
     void testShouldFilter_OverLimitDiffSize() {
         MergeFileDetail file = new MergeFileDetail();
-        file.setPath("src/LargeDiff.java");
+        file.setPath("src/LargeDiff.data");
         file.setCode("short code");
 
         // Build a diff slightly over 100KB
@@ -115,7 +115,7 @@ class AttributionFilterTest {
     @Test
     void testShouldFilter_OverLimitLinesCount() {
         MergeFileDetail file = new MergeFileDetail();
-        file.setPath("src/LongFile.java");
+        file.setPath("src/LongFile.data");
 
         // 5001 lines of short code
         StringBuilder sb = new StringBuilder();
@@ -126,6 +126,22 @@ class AttributionFilterTest {
         file.setDiff("diff content");
 
         assertTrue(filter.shouldFilter(file));
+    }
+
+    @Test
+    void testShouldNotFilter_LargeCodeFile() {
+        MergeFileDetail file = new MergeFileDetail();
+        file.setPath("src/STMS_FlowOne.vue");
+
+        // 6000 lines of code
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i <= 6000; i++) {
+            sb.append("console.log('line');\n");
+        }
+        file.setCode(sb.toString());
+        file.setDiff("diff content");
+
+        assertFalse(filter.shouldFilter(file));
     }
 
     @Test
