@@ -139,8 +139,9 @@ public class ReportController {
             @RequestParam(value = "sysCode", required = false) String sysCode,
             @RequestParam(value = "startDate", required = false) String startDate,
             @RequestParam(value = "endDate", required = false) String endDate) {
-        log.info("[ReportController] getStatsSummary — userId: {}, repoName: {}, sysCode: {}, startDate: {}, endDate: {}",
-                userId, repoName, sysCode, startDate, endDate);
+        if (startDate == null || startDate.trim().isEmpty()) {
+            startDate = java.time.LocalDate.now().minusMonths(1).toString();
+        }
 
         QueryWrapper<AttributionResult> queryWrapper = new QueryWrapper<>();
 
@@ -518,6 +519,10 @@ public class ReportController {
             return ResponseEntity.badRequest().body(Map.of("error", "groupBy is required"));
         }
 
+        if (startDate == null || startDate.trim().isEmpty()) {
+            startDate = java.time.LocalDate.now().minusMonths(1).toString();
+        }
+
         String target = groupBy.trim().toLowerCase();
 
         if ("sys-code".equals(target) || "syscode".equals(target)) {
@@ -541,32 +546,37 @@ public class ReportController {
                         "aiRatio", Math.round(ratio * 10000.0) / 10000.0
                 ));
             }
-            sysBreakdown.sort((a, b) -> Long.compare((Long) b.get("analyzedLines"), (Long) a.get("analyzedLines")));
-            return ResponseEntity.ok(sysBreakdown);
+            sysBreakdown.sort((a, b) -> Double.compare((Double) b.get("aiContributedLines"), (Double) a.get("aiContributedLines")));
+            List<Map<String, Object>> resultList = sysBreakdown.size() > 50 ? sysBreakdown.subList(0, 50) : sysBreakdown;
+            return ResponseEntity.ok(resultList);
 
         } else if ("repo-name".equals(target) || "reponame".equals(target)) {
             QueryWrapper<AttributionResult> repoWrapper = new QueryWrapper<>();
-            repoWrapper.select("repo_name as repoName", "SUM(analyzed_lines) as totalAnalyzedLines", "SUM(ai_contributed_lines) as totalAiContributedLines")
-                    .groupBy("repo_name");
+            repoWrapper.select("sys_code as sysCode", "repo_name as repoName", "SUM(analyzed_lines) as totalAnalyzedLines", "SUM(ai_contributed_lines) as totalAiContributedLines")
+                    .groupBy("sys_code", "repo_name");
             applyDateFilters(repoWrapper, startDate, endDate);
-
+ 
             List<Map<String, Object>> repoList = resultService.listMaps(repoWrapper);
             List<Map<String, Object>> repoBreakdown = new ArrayList<>();
             for (Map<String, Object> map : repoList) {
                 if (map == null) continue;
-                String repoName = map.get("repoName") != null ? map.get("repoName").toString() : "未知仓库";
+                String sysCode = map.get("sysCode") != null ? map.get("sysCode").toString().trim() : "";
+                String repoName = map.get("repoName") != null ? map.get("repoName").toString().trim() : "未知仓库";
+                String displayName = sysCode.isEmpty() ? repoName : sysCode + "/" + repoName;
+
                 long analyzed = map.get("totalAnalyzedLines") != null ? ((Number) map.get("totalAnalyzedLines")).longValue() : 0;
                 double aiContributed = map.get("totalAiContributedLines") != null ? ((Number) map.get("totalAiContributedLines")).doubleValue() : 0.0;
                 double ratio = analyzed > 0 ? aiContributed / analyzed : 0.0;
                 repoBreakdown.add(Map.of(
-                        "name", repoName,
+                        "name", displayName,
                         "analyzedLines", analyzed,
                         "aiContributedLines", Math.round(aiContributed * 100.0) / 100.0,
                         "aiRatio", Math.round(ratio * 10000.0) / 10000.0
                 ));
             }
-            repoBreakdown.sort((a, b) -> Long.compare((Long) b.get("analyzedLines"), (Long) a.get("analyzedLines")));
-            return ResponseEntity.ok(repoBreakdown);
+            repoBreakdown.sort((a, b) -> Double.compare((Double) b.get("aiContributedLines"), (Double) a.get("aiContributedLines")));
+            List<Map<String, Object>> resultList = repoBreakdown.size() > 50 ? repoBreakdown.subList(0, 50) : repoBreakdown;
+            return ResponseEntity.ok(resultList);
 
         } else if ("developer".equals(target) || "user-id".equals(target) || "userid".equals(target)) {
             List<Map<String, Object>> authorBreakdown = new ArrayList<>();
@@ -602,9 +612,9 @@ public class ReportController {
                         "aiRatio", Math.round(ratio * 10000.0) / 10000.0
                 ));
             }
-            authorBreakdown.sort((a, b) -> Long.compare((Long) b.get("analyzedLines"), (Long) a.get("analyzedLines")));
-            return ResponseEntity.ok(authorBreakdown);
-
+            authorBreakdown.sort((a, b) -> Double.compare((Double) b.get("aiContributedLines"), (Double) a.get("aiContributedLines")));
+            List<Map<String, Object>> resultList = authorBreakdown.size() > 50 ? authorBreakdown.subList(0, 50) : authorBreakdown;
+            return ResponseEntity.ok(resultList);
         } else {
             return ResponseEntity.badRequest().body(Map.of("error", "Invalid groupBy parameter. Must be sys-code, repo-name, or developer."));
         }

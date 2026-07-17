@@ -307,5 +307,26 @@ class ReportControllerTest {
                 .andExpect(jsonPath("$[0].endLine").value(2))
                 .andExpect(jsonPath("$[0].attribution").value("fuzzy"));
     }
+
+    @Test
+    void testGetStatsBreakdown_RepoName() throws Exception {
+        java.util.Map<String, Object> record = new java.util.HashMap<>();
+        record.put("sysCode", "euvd");
+        record.put("repoName", "jxchat");
+        record.put("totalAnalyzedLines", 100L);
+        record.put("totalAiContributedLines", 20.5);
+
+        Mockito.when(resultService.listMaps(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class)))
+                .thenReturn(List.of(record));
+
+        mockMvc.perform(get("/api/reports/stats/breakdown")
+                .param("groupBy", "repo-name"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray())
+                .andExpect(jsonPath("$[0].name").value("euvd/jxchat"))
+                .andExpect(jsonPath("$[0].analyzedLines").value(100))
+                .andExpect(jsonPath("$[0].aiContributedLines").value(20.5))
+                .andExpect(jsonPath("$[0].aiRatio").value(0.205));
+    }
 }
 

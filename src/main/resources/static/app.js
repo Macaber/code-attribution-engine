@@ -14,7 +14,10 @@ let state = {
         repoName: '',
         sysCode: ''
     },
-    statsActiveDimension: 'sys-code'
+    statsActiveDimension: 'sys-code',
+    statsSortColumn: 'analyzedLines',
+    statsSortOrder: 'desc',
+    statsData: []
 };
 
 // DOM Elements
@@ -203,6 +206,7 @@ function setupEventListeners() {
 
     toggleHighlightAll.addEventListener('change', () => {
         renderChunkCode();
+        renderRightPanel();
     });
 
     // Tooltip behavior
@@ -238,6 +242,19 @@ function setupEventListeners() {
             statsDashboardSection.classList.remove('hidden');
             if (sidebarSection) sidebarSection.classList.add('hidden');
             if (searchBarSection) searchBarSection.classList.add('hidden');
+
+            // Default date range to last 1 month
+            const statsStartDateInput = document.getElementById('stats-start-date');
+            const statsEndDateInput = document.getElementById('stats-end-date');
+            if (statsStartDateInput && !statsStartDateInput.value) {
+                const oneMonthAgo = new Date();
+                oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+                statsStartDateInput.value = oneMonthAgo.toISOString().split('T')[0];
+            }
+            if (statsEndDateInput && !statsEndDateInput.value) {
+                statsEndDateInput.value = new Date().toISOString().split('T')[0];
+            }
+
             loadGlobalStats();
         });
     }
@@ -274,8 +291,14 @@ function setupEventListeners() {
 
     if (resetStatsBtn) {
         resetStatsBtn.addEventListener('click', () => {
-            if (statsStartDate) statsStartDate.value = '';
-            if (statsEndDate) statsEndDate.value = '';
+            if (statsStartDate) {
+                const oneMonthAgo = new Date();
+                oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+                statsStartDate.value = oneMonthAgo.toISOString().split('T')[0];
+            }
+            if (statsEndDate) {
+                statsEndDate.value = new Date().toISOString().split('T')[0];
+            }
             loadGlobalStats();
         });
     }
@@ -813,6 +836,10 @@ function buildMessageCard(msg, showExpanded = false) {
         if (aiToChunkMap[idx] !== undefined) {
             lineEl.classList.add('clickable-line');
             
+            if (toggleHighlightAll.checked) {
+                lineEl.classList.add('highlight-ai-permanent');
+            }
+            
             lineEl.addEventListener('mouseenter', () => {
                 const chunkLineIdx = aiToChunkMap[idx];
                 state.hoveredLineIdx = chunkLineIdx;
@@ -1018,24 +1045,8 @@ async function loadGlobalStats() {
             if (statsOverallRatio) statsOverallRatio.textContent = overallRatio;
         }
 
-        // 2. Setup correct headers and fetch active dimension breakdown data
+        // 2. Fetch active dimension breakdown data and render with sorting
         if (thead && tbody) {
-            let firstColHeader = '系统代码';
-            if (state.statsActiveDimension === 'repo-name') {
-                firstColHeader = '仓库名称';
-            } else if (state.statsActiveDimension === 'developer') {
-                firstColHeader = '代码提交人';
-            }
-            
-            thead.innerHTML = `
-                <tr>
-                    <th>${firstColHeader}</th>
-                    <th>分析行数</th>
-                    <th>AI 贡献行数</th>
-                    <th>AI 占比</th>
-                </tr>
-            `;
-
             let breakdownUrl = `api/reports/stats/breakdown?groupBy=${state.statsActiveDimension}&`;
             if (startDateVal) breakdownUrl += `startDate=${encodeURIComponent(startDateVal)}&`;
             if (endDateVal) breakdownUrl += `endDate=${encodeURIComponent(endDateVal)}&`;
@@ -1043,38 +1054,8 @@ async function loadGlobalStats() {
             const breakdownRes = await fetch(breakdownUrl);
             if (!breakdownRes.ok) throw new Error('无法加载出码率明细统计');
             
-            const breakdown = await breakdownRes.json();
-            tbody.innerHTML = '';
-            
-            if (breakdown.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" class="text-center">该时间段内暂无数据</td></tr>';
-            } else {
-                breakdown.forEach(item => {
-                    const ratioVal = item.aiRatio;
-                    const ratioPct = (ratioVal * 100).toFixed(1) + '%';
-                    const fillWidth = (ratioVal * 100).toFixed(0) + '%';
-                    
-                    let ratioColorClass = 'color-none';
-                    if (ratioVal >= 0.75) ratioColorClass = 'color-strict';
-                    else if (ratioVal >= 0.25) ratioColorClass = 'color-fuzzy';
-
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `
-                        <td style="font-weight: 600;">${item.name}</td>
-                        <td>${item.analyzedLines} 行</td>
-                        <td>${item.aiContributedLines.toFixed(0)} 行</td>
-                        <td>
-                            <div style="display: flex; align-items: center; gap: 10px;">
-                                <span class="${ratioColorClass}" style="font-weight: 600; width: 50px;">${ratioPct}</span>
-                                <div style="flex: 1; height: 6px; background: var(--bg-tab); border-radius: 3px; overflow: hidden; min-width: 80px; max-width: 200px;">
-                                    <div style="height: 100%; width: ${fillWidth}; background: var(--accent-indigo); border-radius: 3px;"></div>
-                                </div>
-                            </div>
-                        </td>
-                    `;
-                    tbody.appendChild(tr);
-                });
-            }
+            state.statsData = await breakdownRes.json();
+            renderStatsTable();
         }
 
     } catch (err) {
@@ -1082,4 +1063,101 @@ async function loadGlobalStats() {
         showToast('加载出码率汇总统计失败: ' + err.message);
         if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="text-center text-error">⚠️ ${err.message}</td></tr>`;
     }
+}
+
+// Render dynamic stats table with sorting capabilities
+function renderStatsTable() {
+    const table = document.getElementById('dynamic-stats-table');
+    const thead = table ? table.querySelector('thead') : null;
+    const tbody = table ? table.querySelector('tbody') : null;
+    if (!thead || !tbody) return;
+
+    // 1. Sort the cached statsData based on state configuration
+    const col = state.statsSortColumn;
+    const order = state.statsSortOrder;
+    const sortedData = [...state.statsData].sort((a, b) => {
+        let valA = a[col];
+        let valB = b[col];
+
+        if (col === 'name') {
+            valA = (valA || '').toString();
+            valB = (valB || '').toString();
+            return order === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+        }
+
+        valA = Number(valA) || 0;
+        valB = Number(valB) || 0;
+        return order === 'asc' ? valA - valB : valB - valA;
+    });
+
+    // 2. Determine correct dynamic dimension header
+    let firstColHeader = '系统代码';
+    if (state.statsActiveDimension === 'repo-name') {
+        firstColHeader = '仓库名称';
+    } else if (state.statsActiveDimension === 'developer') {
+        firstColHeader = '代码提交人';
+    }
+
+    const getIndicator = (columnName) => {
+        if (state.statsSortColumn !== columnName) return ' <span style="font-size: 10px; opacity: 0.4;">⇅</span>';
+        return state.statsSortOrder === 'asc' 
+            ? ' <span style="color: var(--accent-indigo); font-size: 11px;">▲</span>' 
+            : ' <span style="color: var(--accent-indigo); font-size: 11px;">▼</span>';
+    };
+
+    thead.innerHTML = `
+        <tr>
+            <th data-sort="name" style="cursor: pointer; user-select: none;">${firstColHeader}${getIndicator('name')}</th>
+            <th data-sort="analyzedLines" style="cursor: pointer; user-select: none;">分析行数${getIndicator('analyzedLines')}</th>
+            <th data-sort="aiContributedLines" style="cursor: pointer; user-select: none;">AI 贡献行数${getIndicator('aiContributedLines')}</th>
+            <th data-sort="aiRatio" style="cursor: pointer; user-select: none;">AI 占比${getIndicator('aiRatio')}</th>
+        </tr>
+    `;
+
+    // Rebind click listeners to headers
+    thead.querySelectorAll('th').forEach(th => {
+        th.addEventListener('click', () => {
+            const targetCol = th.getAttribute('data-sort');
+            if (state.statsSortColumn === targetCol) {
+                state.statsSortOrder = state.statsSortOrder === 'asc' ? 'desc' : 'asc';
+            } else {
+                state.statsSortColumn = targetCol;
+                state.statsSortOrder = 'desc';
+            }
+            renderStatsTable();
+        });
+    });
+
+    // 3. Render Body Rows
+    tbody.innerHTML = '';
+    if (sortedData.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center">该时间段内暂无数据</td></tr>';
+        return;
+    }
+
+    sortedData.forEach(item => {
+        const ratioVal = item.aiRatio;
+        const ratioPct = (ratioVal * 100).toFixed(1) + '%';
+        const fillWidth = (ratioVal * 100).toFixed(0) + '%';
+        
+        let ratioColorClass = 'color-none';
+        if (ratioVal >= 0.75) ratioColorClass = 'color-strict';
+        else if (ratioVal >= 0.25) ratioColorClass = 'color-fuzzy';
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td style="font-weight: 600;">${item.name}</td>
+            <td>${item.analyzedLines} 行</td>
+            <td>${item.aiContributedLines.toFixed(0)} 行</td>
+            <td>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <span class="${ratioColorClass}" style="font-weight: 600; width: 50px;">${ratioPct}</span>
+                    <div style="flex: 1; height: 6px; background: var(--bg-tab); border-radius: 3px; overflow: hidden; min-width: 80px; max-width: 200px;">
+                        <div style="height: 100%; width: ${fillWidth}; background: var(--accent-indigo); border-radius: 3px;"></div>
+                    </div>
+                </div>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
 }

@@ -1108,6 +1108,14 @@ body {
     box-shadow: inset 1px 0 0 0 var(--state-strict);
 }
 
+.ai-code-line.highlight-ai-permanent {
+    background: var(--state-strict-highlight);
+}
+
+.ai-code-line.highlight-ai-permanent .line-content {
+    color: var(--text-highlight-single);
+}
+
 .ai-code-line.highlight-ai-line .line-content {
     color: var(--text-highlight-single);
     font-weight: 500;
