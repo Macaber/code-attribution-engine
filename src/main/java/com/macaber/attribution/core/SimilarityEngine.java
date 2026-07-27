@@ -185,15 +185,18 @@ public class SimilarityEngine {
                         .lineMatches(lineMatches)
                         .build();
             }
-            if (l1Score <= config.getL1().getFastFail()) {
+            // L1 fast-fail only when LCS found no exact line matches.
+            // Physical line-level hits are ground truth and must not be masked by low
+            // fingerprint containment (e.g. a few AI lines buried in mostly new code).
+            if (l1Score <= config.getL1().getFastFail() && exactContributedLines == 0) {
                 details.put("l1WinnowingScore", l1Score);
                 return EvaluationResult.builder()
                         .score(0)
                         .matchType(MatchType.NONE)
                         .level(PipelineLevel.L1)
                         .details(details)
-                        .exactContributedLines(exactContributedLines)
-                        .contributedLineIndices(contributedLineIndices)
+                        .exactContributedLines(0)
+                        .contributedLineIndices(new HashSet<>())
                         .lineMatches(lineMatches)
                         .build();
             }

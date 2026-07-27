@@ -617,6 +617,8 @@ function renderChunkCode() {
     if (!chunk) return;
 
     const lines = chunk.chunkContent.split('\n');
+    console.log("Active Chunk filePath:", chunk.filePath);
+    console.log("Chunk contributedLineIndices:", chunk.contributedLineIndices);
     const contributedSet = new Set(chunk.contributedLineIndices || []);
     
     // Find active tab contribution indices
@@ -629,6 +631,7 @@ function renderChunkCode() {
             activeHighlightSet = new Set(msg.contributedLineIndices || []);
         }
     }
+    console.log("activeHighlightSet size:", activeHighlightSet.size, Array.from(activeHighlightSet));
 
     const highlightEnabled = toggleHighlightAll.checked;
 
@@ -809,11 +812,14 @@ function buildMessageCard(msg, showExpanded = false) {
     codeWrapper.style.overflowY = 'auto';
 
     const aiToChunkMap = {};
+    console.log("Message ID:", msg.messageId);
+    console.log("Message lineMatches raw:", msg.lineMatches);
     if (msg.lineMatches) {
         msg.lineMatches.forEach(m => {
             aiToChunkMap[m.aiLineIdx] = m.chunkLineIdx;
         });
     }
+    console.log("Compiled aiToChunkMap:", aiToChunkMap);
 
     const aiLines = msg.rawContent.split('\n');
     aiLines.forEach((lineText, idx) => {

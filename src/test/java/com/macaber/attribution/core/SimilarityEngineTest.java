@@ -38,6 +38,37 @@ class SimilarityEngineTest {
     }
 
     @Test
+    void testEvaluateChunk_LowL1ButExactLcsHits_DoesNotFastFail() {
+        // AI only wrote two small lines; user embeds them in a much larger chunk.
+        // L1 Diff→AI containment is low (most fingerprints are novel), but LCS must still count.
+        String aiCode = "public int add(int a, int b) {\n    return a + b;\n}";
+        String userCode =
+                "public class Calculator {\n" +
+                "    private final String label = \"calc-v1-extra-padding-zzzz\";\n" +
+                "    private final String mode = \"prod-extra-padding-yyyyyy\";\n" +
+                "    public int add(int a, int b) {\n" +
+                "    return a + b;\n" +
+                "    }\n" +
+                "    public int mul(int a, int b) {\n" +
+                "        return a * b * 42;\n" +
+                "    }\n" +
+                "    public int div(int a, int b) {\n" +
+                "        return b == 0 ? 0 : a / b;\n" +
+                "    }\n" +
+                "}";
+
+        EvaluationResult result = engine.evaluateChunk(aiCode, userCode, null);
+
+        assertTrue(result.getExactContributedLines() >= 1,
+                "expected LCS to hit at least one AI line, got " + result.getExactContributedLines());
+        assertNotEquals(MatchType.NONE, result.getMatchType(),
+                "L1 fastFail must not wipe ground-truth LCS hits; matchType=" + result.getMatchType()
+                        + " l1=" + result.getDetails().get("l1WinnowingScore")
+                        + " l2=" + result.getDetails().get("l2LcsScore"));
+        assertTrue(result.getScore() > 0);
+    }
+
+    @Test
     void testEvaluateChunk_EmptyInputs_ReturnsNoneFailedAll() {
         EvaluationResult result = engine.evaluateChunk("", "some code", null);
 

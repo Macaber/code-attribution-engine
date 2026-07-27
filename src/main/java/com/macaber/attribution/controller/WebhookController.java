@@ -109,6 +109,21 @@ public class WebhookController {
                 .collect(Collectors.toList());
 
         if (fileDetails.isEmpty()) {
+            // Finalize the pre-created report so clients do not see a forever-pending row
+            report.setTotalCodeLines(0);
+            report.setDiffLines(0);
+            report.setAnalyzedLines(0);
+            report.setAiContributedLines(0.0);
+            report.setAiContributionRatio(0.0);
+            report.setSkippedLines(0);
+            report.setSkippedFileCount(0);
+            report.setStrictMatches(0);
+            report.setFuzzyMatches(0);
+            report.setDeepRefactorMatches(0);
+            report.setNoMatches(0);
+            report.setElapsedMs(0);
+            resultService.updateById(report);
+
             return ResponseEntity.ok(Map.of(
                     "status", "skipped",
                     "mergeId", payload.getMergeId(),
@@ -131,7 +146,16 @@ public class WebhookController {
                 .fileDetails(fileDetails)
                 .build();
 
-        queueProducer.addJob(jobData);
+        try {
+            queueProducer.addJob(jobData);
+        } catch (RuntimeException e) {
+            log.error("[Webhook] Failed to enqueue job for mergeId: {}", payload.getMergeId(), e);
+            return ResponseEntity.status(503).body(Map.of(
+                    "status", "error",
+                    "mergeId", payload.getMergeId(),
+                    "error", "Failed to queue attribution job",
+                    "message", e.getMessage() != null ? e.getMessage() : "queue unavailable"));
+        }
 
         return ResponseEntity.accepted().body(Map.of(
                 "status", "accepted",

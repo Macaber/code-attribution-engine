@@ -187,4 +187,83 @@ class AttributionWorkerTest {
         assertEquals(1.0, matchResult.getContributedLines());
         assertEquals("msg-abc", matchResult.getMatchedMessageIds());
     }
+
+    @Test
+    void testProcessChunk_StrictWithEmptyLineIndices_IsNotDropped() {
+        org.redisson.api.RedissonClient redissonClient = org.mockito.Mockito.mock(org.redisson.api.RedissonClient.class);
+        SimilarityEngine similarityEngine = org.mockito.Mockito.mock(SimilarityEngine.class);
+        com.macaber.attribution.service.AiMessageService aiMessageService =
+                org.mockito.Mockito.mock(com.macaber.attribution.service.AiMessageService.class);
+        com.macaber.attribution.service.AttributionResultService resultService =
+                org.mockito.Mockito.mock(com.macaber.attribution.service.AttributionResultService.class);
+        com.macaber.attribution.service.AttributionChunkDetailService chunkDetailService =
+                org.mockito.Mockito.mock(com.macaber.attribution.service.AttributionChunkDetailService.class);
+        com.macaber.attribution.service.AttributionFailedJobService failedJobService =
+                org.mockito.Mockito.mock(com.macaber.attribution.service.AttributionFailedJobService.class);
+        com.fasterxml.jackson.databind.ObjectMapper objectMapper =
+                org.mockito.Mockito.mock(com.fasterxml.jackson.databind.ObjectMapper.class);
+
+        PipelineConfig pipelineConfig = org.mockito.Mockito.mock(PipelineConfig.class);
+        PipelineConfig.MultiMessageConfig multiMessageConfig =
+                org.mockito.Mockito.mock(PipelineConfig.MultiMessageConfig.class);
+        org.mockito.Mockito.when(pipelineConfig.getMultiMessage()).thenReturn(multiMessageConfig);
+        org.mockito.Mockito.when(multiMessageConfig.getThreshold()).thenReturn(0.10);
+        org.mockito.Mockito.when(multiMessageConfig.getMinLines()).thenReturn(3);
+        org.mockito.Mockito.when(pipelineConfig.getSingleLineThreshold()).thenReturn(20);
+
+        AttributionWorker worker = new AttributionWorker(
+                redissonClient, similarityEngine, aiMessageService, resultService,
+                chunkDetailService, failedJobService, objectMapper, pipelineConfig
+        );
+
+        // Two non-blank lines (rewrapped total expression — LCS may miss whole lines)
+        DiffChunk diffChunk = new DiffChunk();
+        diffChunk.setContent("const total = price * quantity\n  * (1 - discount);\n");
+        diffChunk.setStartLine(1);
+        diffChunk.setEndLine(2);
+        diffChunk.setFilePath("calc.js");
+        diffChunk.setUserId("user1");
+        diffChunk.setNonBlankLineCount(2);
+
+        EnrichedChunk enrichedChunk = new EnrichedChunk(
+                diffChunk, diffChunk.getContent(), 2, "calc.js"
+        );
+
+        AiMessageDto aiMessageDto = AiMessageDto.builder()
+                .messageId("msg-strict")
+                .userId("user1")
+                .rawContent("const total = price * quantity * (1 - discount);")
+                .build();
+
+        AttributionWorker.NormalizedAiMessage normalizedAiMessage = new AttributionWorker.NormalizedAiMessage(
+                aiMessageDto,
+                "consttotal=price*quantity*(1-discount);",
+                new Normalizer().normalizeToLines(aiMessageDto.getRawContent())
+        );
+
+        // L1 STRICT with empty line indices (fingerprint hit, no whole-line LCS)
+        java.util.Map<String, Double> details = new java.util.HashMap<>();
+        details.put("l1WinnowingScore", 0.95);
+        EvaluationResult evaluationResult = EvaluationResult.builder()
+                .score(0.95)
+                .matchType(MatchType.STRICT)
+                .level(PipelineLevel.L1)
+                .details(details)
+                .exactContributedLines(0)
+                .contributedLineIndices(java.util.Collections.emptySet())
+                .build();
+        org.mockito.Mockito.when(similarityEngine.evaluateChunk(
+                org.mockito.Mockito.anyString(), org.mockito.Mockito.anyString(), org.mockito.Mockito.any()
+        )).thenReturn(evaluationResult);
+
+        MatchResult matchResult = worker.processChunk(enrichedChunk, List.of(normalizedAiMessage));
+
+        assertEquals("strict", matchResult.getAttribution(),
+                "STRICT with empty line indices must not be zeroed by set-cover");
+        assertEquals(2.0, matchResult.getContributedLines(), 0.001,
+                "STRICT should credit nonBlankLineCount when indices are empty");
+        assertEquals("msg-strict", matchResult.getMatchedMessageIds());
+        assertNotNull(matchResult.getBestMatch());
+        assertEquals(MatchType.STRICT.name(), matchResult.getBestMatch().getMatchType());
+    }
 }

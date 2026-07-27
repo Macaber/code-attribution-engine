@@ -23,7 +23,13 @@ public class RedissonQueueProducer implements QueueProducer {
             log.info("[Queue] Successfully added job for mergeId: {}", jobData.getMergeId());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            log.error("[Queue] Failed to add job to queue", e);
+            log.error("[Queue] Failed to add job to queue for mergeId: {}", jobData.getMergeId(), e);
+            throw new IllegalStateException(
+                    "Failed to enqueue attribution job for mergeId: " + jobData.getMergeId(), e);
+        } catch (RuntimeException e) {
+            log.error("[Queue] Failed to add job to queue for mergeId: {}", jobData.getMergeId(), e);
+            throw new IllegalStateException(
+                    "Failed to enqueue attribution job for mergeId: " + jobData.getMergeId(), e);
         }
     }
 }

@@ -255,7 +255,10 @@ public class AttributionWorker {
         }
 
         if (enrichedChunks.isEmpty()) {
-            log.info("[Worker] No valid diff chunks found for mergeId: {}", jobData.getMergeId());
+            // Still write a terminal summary so the pre-created report is not left pending forever
+            log.info("[Worker] No valid diff chunks found for mergeId: {} — saving empty summary", jobData.getMergeId());
+            long elapsedMs = System.currentTimeMillis() - startTime;
+            saveSummary(Collections.emptyList(), jobData, elapsedMs);
             return;
         }
 
@@ -469,11 +472,18 @@ public class AttributionWorker {
         });
 
         // ── Greedy Set Cover / Deduplication ──
+        // Keep STRICT (or any non-NONE best) even when contributedLineIndices is empty.
+        // L1 fingerprint STRICT can legitimately have zero whole-line LCS hits (e.g. rewrapped lines).
+        CandidateMatch preFilterBest = bestCandidate;
         List<CandidateMatch> filteredCandidates = new ArrayList<>();
+        List<CandidateMatch> emptyIndexStrict = new ArrayList<>();
         Set<Integer> mergedLineIndices = new HashSet<>();
         for (CandidateMatch c : candidates) {
             Set<Integer> lineIndices = c.result.getContributedLineIndices();
             if (lineIndices == null || lineIndices.isEmpty()) {
+                if (c.result.getMatchType() == MatchType.STRICT) {
+                    emptyIndexStrict.add(c);
+                }
                 continue;
             }
             boolean contributesNewLines = false;
@@ -489,12 +499,28 @@ public class AttributionWorker {
             }
         }
 
+        // Re-attach STRICT matches that had no line indices so attribution is not zeroed
+        for (CandidateMatch c : emptyIndexStrict) {
+            boolean already = filteredCandidates.stream()
+                    .anyMatch(f -> f.messageId.equals(c.messageId));
+            if (!already) {
+                filteredCandidates.add(c);
+            }
+        }
+
         // Recalculate bestCandidate from the filtered candidates to keep it consistent
         bestCandidate = null;
         for (CandidateMatch c : filteredCandidates) {
             if (bestCandidate == null || c.result.getScore() > bestCandidate.result.getScore()) {
                 bestCandidate = c;
             }
+        }
+
+        // Last resort: if set-cover emptied everything, restore pre-filter best when still a real match
+        if (bestCandidate == null && preFilterBest != null
+                && preFilterBest.result.getMatchType() != MatchType.NONE) {
+            bestCandidate = preFilterBest;
+            filteredCandidates.add(preFilterBest);
         }
 
         // ── Build attribution from best match ──

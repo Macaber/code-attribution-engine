@@ -356,7 +356,16 @@ public class ReportController {
                 .timeframeDays(timeframeDays)
                 .build();
 
-        queueProducer.addJob(jobData);
+        try {
+            queueProducer.addJob(jobData);
+        } catch (RuntimeException e) {
+            log.error("[ReportController] Failed to enqueue recalculation for reportId: {}", id, e);
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
+                    "status", "error",
+                    "reportId", id,
+                    "error", "Failed to queue recalculation job",
+                    "message", e.getMessage() != null ? e.getMessage() : "queue unavailable"));
+        }
 
         return ResponseEntity.accepted().body(Map.of(
                 "status", "accepted",
