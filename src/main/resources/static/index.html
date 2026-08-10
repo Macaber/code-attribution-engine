@@ -20,6 +20,7 @@
                 <div class="header-nav-tabs">
                     <button id="nav-workspace-btn" class="nav-tab active">工作台</button>
                     <button id="nav-stats-btn" class="nav-tab">全局汇总统计</button>
+                    <button id="nav-chunks-btn" class="nav-tab">提交人 Chunk 查询</button>
                 </div>
             </div>
             <div class="report-search-bar">
@@ -206,6 +207,123 @@
                                     <!-- Dynamic -->
                                 </tbody>
                             </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Submitter Chunks Query Dashboard -->
+            <section class="chunks-dashboard hidden">
+                <div class="chunks-dashboard-content">
+                    <!-- Filter Top Bar -->
+                    <div class="chunks-filter-header">
+                        <div class="chunks-header-title-area">
+                            <h2>🧩 提交人 Chunk 查询</h2>
+                        </div>
+                        <div class="chunks-summary-metrics" id="chunks-summary-metrics">
+                            <div class="metric-pill">
+                                <span class="pill-label">分析总行数</span>
+                                <span class="pill-value" id="chunks-summary-analyzed">0</span>
+                            </div>
+                            <div class="metric-pill">
+                                <span class="pill-label">AI 贡献行数</span>
+                                <span class="pill-value" id="chunks-summary-ai-lines">0</span>
+                            </div>
+                            <div class="metric-pill">
+                                <span class="pill-label">AI 出码占比</span>
+                                <span class="pill-value ratio-pill" id="chunks-summary-ratio">0.0%</span>
+                            </div>
+                        </div>
+                        <div class="chunks-filter-inputs">
+                            <input type="text" id="chunks-user-id" placeholder="提交人 ID (user_id)..." class="filter-input">
+                            <input type="text" id="chunks-repo-name" placeholder="仓库名称 (repo_name)..." class="filter-input">
+                            <input type="text" id="chunks-sys-code" placeholder="系统代码 (sys_code)..." class="filter-input">
+                            <label>开始日期: <input type="date" id="chunks-start-date" class="filter-input-date"></label>
+                            <label>结束日期: <input type="date" id="chunks-end-date" class="filter-input-date"></label>
+                            <button id="query-chunks-btn" class="btn btn-primary btn-xs">查询</button>
+                            <button id="reset-chunks-btn" class="btn btn-secondary btn-xs">重置</button>
+                        </div>
+                    </div>
+
+                    <!-- Split View: Chunk List (Left) & Workspace Visualizer (Right) -->
+                    <div class="chunks-body-layout">
+                        <!-- Left Panel: Chunk List -->
+                        <div class="chunks-sidebar-card">
+                            <div class="card-header">
+                                <h3>📋 Chunk 列表</h3>
+                                <span id="chunks-total-count" class="badge">共 0 条</span>
+                            </div>
+                            <div id="chunks-list-container" class="chunks-list-container">
+                                <div class="empty-state">请输入提交人 ID 或选择日期范围进行查询</div>
+                            </div>
+                            <div class="pagination-controls">
+                                <button id="prev-chunk-page-btn" class="btn btn-secondary btn-xs" disabled>◀</button>
+                                <span id="chunk-page-indicator">1 / 1</span>
+                                <button id="next-chunk-page-btn" class="btn btn-secondary btn-xs" disabled>▶</button>
+                            </div>
+                        </div>
+
+                        <!-- Right Panel: Visualization Workspace -->
+                        <div class="chunks-workspace">
+                            <div id="chunks-no-selection-state" class="workspace-empty">
+                                <div class="empty-glow-icon">🧩</div>
+                                <h2>Chunk 代码块与 AI 消息溯源</h2>
+                                <p>请从左侧列表中点击具体的 Chunk，查看该 Chunk 的代码块内容、仓库与系统标识，以及与 AI 消息之间的匹配溯源结果。</p>
+                            </div>
+
+                            <div id="chunks-visualization-workspace" class="workspace-content hidden">
+                                <!-- Title Bar of selected Chunk -->
+                                <div class="workspace-title-bar">
+                                    <div class="chunk-title-info">
+                                        <h2 id="chunk-tab-file-path">File Path</h2>
+                                        <span id="chunk-tab-lines-badge" class="badge">Lines 0 - 0</span>
+                                        <span id="chunk-tab-user-badge" class="badge badge-secondary">Author</span>
+                                        <span id="chunk-tab-repo-badge" class="badge badge-outline">Repo</span>
+                                        <span id="chunk-tab-sys-badge" class="badge badge-outline">Sys</span>
+                                        <span id="chunk-tab-branch-badge" class="badge badge-branch">Source -> Target</span>
+                                    </div>
+                                    <div class="chunk-match-badge">
+                                        <span id="chunk-tab-attribution-badge" class="badge-status">FUZZY</span>
+                                        <span id="chunk-tab-score-badge" class="badge-score">95.0%</span>
+                                    </div>
+                                </div>
+
+                                <!-- Split Pane: Code & AI Source -->
+                                <div class="split-pane">
+                                    <svg id="chunk-tab-connection-svg" class="connection-svg"></svg>
+                                    <!-- Left Pane: Chunk Code -->
+                                    <div class="pane left-pane">
+                                        <div class="pane-header">
+                                            <h3>📝 代码变更块 (Chunk Content)</h3>
+                                            <div class="highlight-controls">
+                                                <label class="control-checkbox">
+                                                    <input type="checkbox" id="chunk-tab-toggle-highlight" checked>
+                                                    <span>高亮所有匹配行</span>
+                                                </label>
+                                            </div>
+                                        </div>
+                                        <div class="code-container">
+                                            <div class="code-wrapper" id="chunk-tab-code-viewer">
+                                                <!-- Rendered line by line -->
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Right Pane: AI Message Source -->
+                                    <div class="pane right-pane">
+                                        <div class="pane-header">
+                                            <h3>🤖 AI 消息溯源 (AiMessage Source)</h3>
+                                            <div class="message-select-tabs" id="chunk-tab-message-tabs">
+                                                <!-- Dynamic Tabs -->
+                                            </div>
+                                        </div>
+                                        <div class="message-content-area" id="chunk-tab-message-content-panel">
+                                            <!-- Dynamic Content -->
+                                            <div class="empty-state">无匹配的 AI 消息</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

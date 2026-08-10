@@ -52,6 +52,9 @@ class ReportControllerTest {
     @MockBean
     private com.macaber.attribution.service.AiMessageService aiMessageService;
 
+    @MockBean
+    private com.macaber.attribution.dao.AttributionChunkDetailMapper chunkDetailMapper;
+
 
 
     @Test
@@ -327,6 +330,81 @@ class ReportControllerTest {
                 .andExpect(jsonPath("$[0].analyzedLines").value(100))
                 .andExpect(jsonPath("$[0].aiContributedLines").value(20.5))
                 .andExpect(jsonPath("$[0].aiRatio").value(0.205));
+    }
+
+    @Test
+    void testGetChunks_Success() throws Exception {
+        com.macaber.attribution.dto.ChunkQueryResultDto chunkDto = com.macaber.attribution.dto.ChunkQueryResultDto.builder()
+                .id(10L)
+                .reportId(1L)
+                .userId("dev1")
+                .filePath("src/Main.java")
+                .startLine(1)
+                .endLine(10)
+                .attribution("strict")
+                .score(1.0)
+                .repoName("my-repo")
+                .sysCode("SYS01")
+                .source("feature")
+                .target("main")
+                .build();
+
+        com.baomidou.mybatisplus.extension.plugins.pagination.Page<com.macaber.attribution.dto.ChunkQueryResultDto> pageResult =
+                new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(1, 20);
+        pageResult.setRecords(List.of(chunkDto));
+        pageResult.setTotal(1);
+        pageResult.setPages(1);
+
+        Mockito.when(chunkDetailMapper.selectChunkWithReportPage(any(), any(), any(), any(), any(), any()))
+                .thenReturn(pageResult);
+
+        mockMvc.perform(get("/api/reports/chunks")
+                .param("userId", "dev1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].id").value(10))
+                .andExpect(jsonPath("$.data[0].userId").value("dev1"))
+                .andExpect(jsonPath("$.data[0].repoName").value("my-repo"))
+                .andExpect(jsonPath("$.data[0].sysCode").value("SYS01"))
+                .andExpect(jsonPath("$.data[0].source").value("feature"))
+                .andExpect(jsonPath("$.data[0].target").value("main"));
+    }
+
+    @Test
+    void testGetChunkDetail_Success() throws Exception {
+        AttributionChunkDetail chunkDetail = AttributionChunkDetail.builder()
+                .id(10L)
+                .reportId(1L)
+                .userId("dev1")
+                .filePath("src/Main.java")
+                .startLine(1)
+                .endLine(5)
+                .attribution("strict")
+                .score(0.9)
+                .matchedMessageIds("101")
+                .build();
+
+        AttributionResult report = AttributionResult.builder()
+                .id(1L)
+                .repoName("my-repo")
+                .sysCode("SYS01")
+                .source("feature")
+                .target("main")
+                .build();
+
+        Mockito.when(chunkDetailService.getById(10L)).thenReturn(chunkDetail);
+        Mockito.when(resultService.getById(1L)).thenReturn(report);
+        Mockito.when(fileDetailService.list(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class)))
+                .thenReturn(Collections.emptyList());
+
+        mockMvc.perform(get("/api/reports/chunks/10/detail"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.chunkId").value(10))
+                .andExpect(jsonPath("$.filePath").value("src/Main.java"))
+                .andExpect(jsonPath("$.userId").value("dev1"))
+                .andExpect(jsonPath("$.repoName").value("my-repo"))
+                .andExpect(jsonPath("$.sysCode").value("SYS01"))
+                .andExpect(jsonPath("$.source").value("feature"))
+                .andExpect(jsonPath("$.target").value("main"));
     }
 }
 

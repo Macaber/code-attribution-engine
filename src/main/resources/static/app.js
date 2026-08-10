@@ -17,7 +17,24 @@ let state = {
     statsActiveDimension: 'sys-code',
     statsSortColumn: 'analyzedLines',
     statsSortOrder: 'desc',
-    statsData: []
+    statsData: [],
+
+    // Submitter Chunk Query State
+    chunkQuery: {
+        userId: '',
+        repoName: '',
+        sysCode: '',
+        startDate: '',
+        endDate: '',
+        currentPage: 1,
+        pageSize: 15,
+        totalPages: 1,
+        total: 0,
+        chunks: [],
+        activeChunkDetail: null,
+        activeTab: 'all',
+        hoveredLineIdx: null
+    }
 };
 
 // DOM Elements
@@ -209,27 +226,23 @@ function setupEventListeners() {
         renderRightPanel();
     });
 
-    // Tooltip behavior
-    document.addEventListener('mousemove', (e) => {
-        if (!hoverTooltip.classList.contains('hidden')) {
-            hoverTooltip.style.left = e.clientX + 'px';
-            hoverTooltip.style.top = e.clientY + 'px';
-        }
-    });
-
-    // Tab switching for Workspace vs Stats Dashboard
+    // Tab switching for Workspace vs Stats Dashboard vs Chunks Query Dashboard
     const navWorkspaceBtn = document.getElementById('nav-workspace-btn');
     const navStatsBtn = document.getElementById('nav-stats-btn');
+    const navChunksBtn = document.getElementById('nav-chunks-btn');
     const workspaceSection = document.querySelector('.workspace');
     const statsDashboardSection = document.querySelector('.stats-dashboard');
+    const chunksDashboardSection = document.querySelector('.chunks-dashboard');
     const sidebarSection = document.querySelector('.sidebar');
     const searchBarSection = document.querySelector('.report-search-bar');
 
     if (navWorkspaceBtn && navStatsBtn) {
         navWorkspaceBtn.addEventListener('click', () => {
             navStatsBtn.classList.remove('active');
+            if (navChunksBtn) navChunksBtn.classList.remove('active');
             navWorkspaceBtn.classList.add('active');
             statsDashboardSection.classList.add('hidden');
+            if (chunksDashboardSection) chunksDashboardSection.classList.add('hidden');
             workspaceSection.classList.remove('hidden');
             if (sidebarSection) sidebarSection.classList.remove('hidden');
             if (searchBarSection) searchBarSection.classList.remove('hidden');
@@ -237,8 +250,10 @@ function setupEventListeners() {
 
         navStatsBtn.addEventListener('click', () => {
             navWorkspaceBtn.classList.remove('active');
+            if (navChunksBtn) navChunksBtn.classList.remove('active');
             navStatsBtn.classList.add('active');
             workspaceSection.classList.add('hidden');
+            if (chunksDashboardSection) chunksDashboardSection.classList.add('hidden');
             statsDashboardSection.classList.remove('hidden');
             if (sidebarSection) sidebarSection.classList.add('hidden');
             if (searchBarSection) searchBarSection.classList.add('hidden');
@@ -256,6 +271,119 @@ function setupEventListeners() {
             }
 
             loadGlobalStats();
+        });
+    }
+
+    if (navChunksBtn) {
+        navChunksBtn.addEventListener('click', () => {
+            if (navWorkspaceBtn) navWorkspaceBtn.classList.remove('active');
+            if (navStatsBtn) navStatsBtn.classList.remove('active');
+            navChunksBtn.classList.add('active');
+
+            if (workspaceSection) workspaceSection.classList.add('hidden');
+            if (statsDashboardSection) statsDashboardSection.classList.add('hidden');
+            if (chunksDashboardSection) chunksDashboardSection.classList.remove('hidden');
+            if (sidebarSection) sidebarSection.classList.add('hidden');
+            if (searchBarSection) searchBarSection.classList.add('hidden');
+
+            const chunksStartDate = document.getElementById('chunks-start-date');
+            const chunksEndDate = document.getElementById('chunks-end-date');
+            if (chunksStartDate && !chunksStartDate.value) {
+                const oneMonthAgo = new Date();
+                oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+                chunksStartDate.value = oneMonthAgo.toISOString().split('T')[0];
+            }
+            if (chunksEndDate && !chunksEndDate.value) {
+                chunksEndDate.value = new Date().toISOString().split('T')[0];
+            }
+
+            state.chunkQuery.startDate = chunksStartDate ? chunksStartDate.value : '';
+            state.chunkQuery.endDate = chunksEndDate ? chunksEndDate.value : '';
+
+            fetchChunksList();
+        });
+    }
+
+    // Chunks Query Filter Controls
+    const queryChunksBtn = document.getElementById('query-chunks-btn');
+    const resetChunksBtn = document.getElementById('reset-chunks-btn');
+    const chunksUserIdInput = document.getElementById('chunks-user-id');
+    const chunksRepoNameInput = document.getElementById('chunks-repo-name');
+    const chunksSysCodeInput = document.getElementById('chunks-sys-code');
+    const chunksStartDateInput = document.getElementById('chunks-start-date');
+    const chunksEndDateInput = document.getElementById('chunks-end-date');
+    const prevChunkPageBtn = document.getElementById('prev-chunk-page-btn');
+    const nextChunkPageBtn = document.getElementById('next-chunk-page-btn');
+
+    if (queryChunksBtn) {
+        queryChunksBtn.addEventListener('click', () => {
+            state.chunkQuery.userId = chunksUserIdInput ? chunksUserIdInput.value.trim() : '';
+            state.chunkQuery.repoName = chunksRepoNameInput ? chunksRepoNameInput.value.trim() : '';
+            state.chunkQuery.sysCode = chunksSysCodeInput ? chunksSysCodeInput.value.trim() : '';
+            state.chunkQuery.startDate = chunksStartDateInput ? chunksStartDateInput.value : '';
+            state.chunkQuery.endDate = chunksEndDateInput ? chunksEndDateInput.value : '';
+            state.chunkQuery.currentPage = 1;
+            fetchChunksList();
+        });
+    }
+
+    const chunkFilterInputs = [chunksUserIdInput, chunksRepoNameInput, chunksSysCodeInput];
+    chunkFilterInputs.forEach(input => {
+        if (input) {
+            input.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    if (queryChunksBtn) queryChunksBtn.click();
+                }
+            });
+        }
+    });
+
+    if (resetChunksBtn) {
+        resetChunksBtn.addEventListener('click', () => {
+            if (chunksUserIdInput) chunksUserIdInput.value = '';
+            if (chunksRepoNameInput) chunksRepoNameInput.value = '';
+            if (chunksSysCodeInput) chunksSysCodeInput.value = '';
+            if (chunksStartDateInput) {
+                const oneMonthAgo = new Date();
+                oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+                chunksStartDateInput.value = oneMonthAgo.toISOString().split('T')[0];
+            }
+            if (chunksEndDateInput) {
+                chunksEndDateInput.value = new Date().toISOString().split('T')[0];
+            }
+            state.chunkQuery.userId = '';
+            state.chunkQuery.repoName = '';
+            state.chunkQuery.sysCode = '';
+            state.chunkQuery.startDate = chunksStartDateInput ? chunksStartDateInput.value : '';
+            state.chunkQuery.endDate = chunksEndDateInput ? chunksEndDateInput.value : '';
+            state.chunkQuery.currentPage = 1;
+            fetchChunksList();
+        });
+    }
+
+    if (prevChunkPageBtn) {
+        prevChunkPageBtn.addEventListener('click', () => {
+            if (state.chunkQuery.currentPage > 1) {
+                state.chunkQuery.currentPage--;
+                fetchChunksList();
+            }
+        });
+    }
+
+    if (nextChunkPageBtn) {
+        nextChunkPageBtn.addEventListener('click', () => {
+            if (state.chunkQuery.currentPage < state.chunkQuery.totalPages) {
+                state.chunkQuery.currentPage++;
+                fetchChunksList();
+            }
+        });
+    }
+
+    const chunkTabToggleHighlight = document.getElementById('chunk-tab-toggle-highlight');
+    if (chunkTabToggleHighlight) {
+        chunkTabToggleHighlight.addEventListener('change', () => {
+            renderChunkTabCode();
+            renderChunkTabRightPanel();
         });
     }
 
@@ -936,7 +1064,7 @@ function showToast(message) {
     }, 4000);
 }
 
-// Draw Connecting Lines between Chunk and AI Message Matching Lines
+// Draw Connecting Lines between Chunk and AI Message Matching Lines (Line highlights active on hover)
 function drawConnectionLines(chunkLineIdx) {
     clearConnectionLines();
     
@@ -1167,3 +1295,461 @@ function renderStatsTable() {
         tbody.appendChild(tr);
     });
 }
+
+// ── Submitter Chunks Query Dashboard Logic ──
+
+async function fetchChunksList() {
+    const listContainer = document.getElementById('chunks-list-container');
+    const totalCountSpan = document.getElementById('chunks-total-count');
+    const pageIndicator = document.getElementById('chunk-page-indicator');
+    const prevBtn = document.getElementById('prev-chunk-page-btn');
+    const nextBtn = document.getElementById('next-chunk-page-btn');
+
+    if (!listContainer) return;
+    listContainer.innerHTML = '<div class="empty-state"><div class="loading-spinner"></div><div style="margin-top:10px;">正在查询 Chunk 数据...</div></div>';
+
+    try {
+        const params = new URLSearchParams({
+            page: state.chunkQuery.currentPage,
+            pageSize: state.chunkQuery.pageSize
+        });
+        if (state.chunkQuery.userId) params.append('userId', state.chunkQuery.userId);
+        if (state.chunkQuery.repoName) params.append('repoName', state.chunkQuery.repoName);
+        if (state.chunkQuery.sysCode) params.append('sysCode', state.chunkQuery.sysCode);
+        if (state.chunkQuery.startDate) params.append('startDate', state.chunkQuery.startDate);
+        if (state.chunkQuery.endDate) params.append('endDate', state.chunkQuery.endDate);
+
+        const res = await fetch(`api/reports/chunks?${params.toString()}`);
+        if (!res.ok) throw new Error('查询 Chunk 列表失败');
+        const data = await res.json();
+
+        state.chunkQuery.chunks = data.data || [];
+        state.chunkQuery.totalPages = data.pagination ? data.pagination.totalPages : 1;
+        state.chunkQuery.total = data.pagination ? data.pagination.total : 0;
+
+        // Render summary metrics under current filter conditions
+        const summary = data.summary || {};
+        const summaryAnalyzed = document.getElementById('chunks-summary-analyzed');
+        const summaryAiLines = document.getElementById('chunks-summary-ai-lines');
+        const summaryRatio = document.getElementById('chunks-summary-ratio');
+
+        if (summaryAnalyzed) summaryAnalyzed.textContent = (summary.totalAnalyzedLines || 0).toLocaleString();
+        if (summaryAiLines) summaryAiLines.textContent = Math.round(summary.totalAiContributedLines || 0).toLocaleString();
+        if (summaryRatio) {
+            const ratioPct = ((summary.aiRatio || 0) * 100).toFixed(1) + '%';
+            summaryRatio.textContent = ratioPct;
+        }
+
+        if (totalCountSpan) totalCountSpan.textContent = `共 ${state.chunkQuery.total} 条`;
+        if (pageIndicator) pageIndicator.textContent = `${state.chunkQuery.currentPage} / ${state.chunkQuery.totalPages || 1}`;
+        if (prevBtn) prevBtn.disabled = state.chunkQuery.currentPage <= 1;
+        if (nextBtn) nextBtn.disabled = state.chunkQuery.currentPage >= state.chunkQuery.totalPages;
+
+        renderChunksList();
+    } catch (err) {
+        console.error(err);
+        listContainer.innerHTML = `<div class="empty-state">查询 Chunk 失败: ${err.message}</div>`;
+    }
+}
+
+function renderChunksList() {
+    const listContainer = document.getElementById('chunks-list-container');
+    if (!listContainer) return;
+    listContainer.innerHTML = '';
+
+    if (!state.chunkQuery.chunks || state.chunkQuery.chunks.length === 0) {
+        listContainer.innerHTML = '<div class="empty-state">未找到匹配的 Chunk 记录</div>';
+        return;
+    }
+
+    state.chunkQuery.chunks.forEach(chunk => {
+        const item = document.createElement('div');
+        item.className = 'chunk-result-card';
+        if (state.chunkQuery.activeChunkDetail && state.chunkQuery.activeChunkDetail.chunkId === chunk.id) {
+            item.classList.add('active');
+        }
+
+        const scorePercent = chunk.score != null ? (chunk.score * 100).toFixed(1) + '%' : '0.0%';
+        const attributionClass = chunk.attribution || 'none';
+        const formattedDate = chunk.reportCreatedAt ? chunk.reportCreatedAt.replace('T', ' ').substring(0, 16) : '-';
+
+        item.innerHTML = `
+            <div class="card-title-row">
+                <span class="file-path-text" title="${chunk.filePath}">${chunk.filePath}</span>
+                <span class="chunk-badge ${attributionClass}">${attributionClass.replace('_', ' ')} ${scorePercent}</span>
+            </div>
+            <div class="card-info-row">
+                <span class="badge badge-lines">Lines ${chunk.startLine}-${chunk.endLine} (${chunk.analyzedLines || 0}行)</span>
+                <span class="badge badge-user">👤 ${chunk.userId || '未知提交人'}</span>
+            </div>
+            <div class="card-meta-row">
+                <span class="meta-tag tag-repo" title="仓库: ${chunk.repoName}">📦 ${chunk.repoName || '-'}</span>
+                <span class="meta-tag tag-sys" title="系统: ${chunk.sysCode}">🖥️ ${chunk.sysCode || '-'}</span>
+            </div>
+            <div class="card-branch-row">
+                <span class="meta-tag tag-branch" title="分支: ${chunk.source} -> ${chunk.target}">🔀 ${chunk.source || '-'} ➔ ${chunk.target || '-'}</span>
+                <span class="meta-time">${formattedDate}</span>
+            </div>
+        `;
+
+        item.addEventListener('click', () => {
+            document.querySelectorAll('.chunk-result-card').forEach(el => el.classList.remove('active'));
+            item.classList.add('active');
+            loadChunkDetail(chunk.id);
+        });
+
+        listContainer.appendChild(item);
+    });
+}
+
+async function loadChunkDetail(chunkId) {
+    const noState = document.getElementById('chunks-no-selection-state');
+    const vizWorkspace = document.getElementById('chunks-visualization-workspace');
+    if (!vizWorkspace) return;
+
+    try {
+        const res = await fetch(`api/reports/chunks/${chunkId}/detail`);
+        if (!res.ok) throw new Error('获取 Chunk 详情失败');
+        const detail = await res.json();
+
+        state.chunkQuery.activeChunkDetail = detail;
+        state.chunkQuery.activeTab = 'all';
+
+        if (noState) noState.classList.add('hidden');
+        vizWorkspace.classList.remove('hidden');
+
+        // Header metadata
+        const filePathEl = document.getElementById('chunk-tab-file-path');
+        if (filePathEl) filePathEl.textContent = detail.filePath;
+
+        const linesBadge = document.getElementById('chunk-tab-lines-badge');
+        if (linesBadge) linesBadge.textContent = `Lines ${detail.startLine} - ${detail.endLine}`;
+
+        const userBadge = document.getElementById('chunk-tab-user-badge');
+        if (userBadge) userBadge.textContent = `👤 ${detail.userId || '未知提交人'}`;
+
+        const repoBadge = document.getElementById('chunk-tab-repo-badge');
+        if (repoBadge) repoBadge.textContent = `📦 ${detail.repoName || '-'}`;
+
+        const sysBadge = document.getElementById('chunk-tab-sys-badge');
+        if (sysBadge) sysBadge.textContent = `🖥️ ${detail.sysCode || '-'}`;
+
+        const branchBadge = document.getElementById('chunk-tab-branch-badge');
+        if (branchBadge) branchBadge.textContent = `🔀 ${detail.source || '-'} ➔ ${detail.target || '-'}`;
+
+        const attrBadge = document.getElementById('chunk-tab-attribution-badge');
+        if (attrBadge) {
+            attrBadge.className = `badge-status ${detail.attribution}`;
+            attrBadge.textContent = (detail.attribution || 'none').replace('_', ' ');
+        }
+
+        const scoreBadge = document.getElementById('chunk-tab-score-badge');
+        if (scoreBadge) scoreBadge.textContent = ((detail.score || 0) * 100).toFixed(1) + '%';
+
+        renderChunkTabCode();
+        renderChunkTabTabs();
+        renderChunkTabRightPanel();
+    } catch (err) {
+        console.error(err);
+        showToast('加载 Chunk 详情失败: ' + err.message);
+    }
+}
+
+function renderChunkTabCode() {
+    const codeViewer = document.getElementById('chunk-tab-code-viewer');
+    if (!codeViewer) return;
+    codeViewer.innerHTML = '';
+
+    const detail = state.chunkQuery.activeChunkDetail;
+    if (!detail || !detail.chunkContent) return;
+
+    const lines = detail.chunkContent.split('\n');
+    const contributedSet = new Set(detail.contributedLineIndices || []);
+
+    let activeHighlightSet = new Set();
+    if (state.chunkQuery.activeTab === 'all') {
+        activeHighlightSet = contributedSet;
+    } else {
+        const msg = (detail.matchedMessages || []).find(m => m.messageId === state.chunkQuery.activeTab);
+        if (msg) {
+            activeHighlightSet = new Set(msg.contributedLineIndices || []);
+        }
+    }
+
+    const toggleBtn = document.getElementById('chunk-tab-toggle-highlight');
+    const highlightEnabled = toggleBtn ? toggleBtn.checked : true;
+
+    lines.forEach((lineText, idx) => {
+        const lineEl = document.createElement('div');
+        lineEl.className = 'code-line clickable-line';
+
+        const lineNumVal = detail.startLine + idx;
+        const lineNumEl = document.createElement('div');
+        lineNumEl.className = 'line-number';
+        lineNumEl.textContent = lineNumVal;
+
+        const lineContentEl = document.createElement('div');
+        lineContentEl.className = 'line-content';
+        lineContentEl.textContent = lineText;
+
+        lineEl.appendChild(lineNumEl);
+        lineEl.appendChild(lineContentEl);
+
+        if (highlightEnabled && activeHighlightSet.has(idx)) {
+            if (state.chunkQuery.activeTab === 'all') {
+                lineEl.classList.add('highlight-combined');
+            } else {
+                lineEl.classList.add('highlight-single');
+            }
+
+            lineEl.addEventListener('mouseenter', (e) => {
+                state.chunkQuery.hoveredLineIdx = idx;
+                showLineTooltipForChunk(idx, e);
+                drawChunkTabConnectionLines(idx);
+            });
+            lineEl.addEventListener('mouseleave', () => {
+                state.chunkQuery.hoveredLineIdx = null;
+                hideLineTooltip();
+                clearChunkTabConnectionLines();
+            });
+        }
+
+        codeViewer.appendChild(lineEl);
+    });
+}
+
+function renderChunkTabTabs() {
+    const tabsPanel = document.getElementById('chunk-tab-message-tabs');
+    if (!tabsPanel) return;
+    tabsPanel.innerHTML = '';
+
+    const detail = state.chunkQuery.activeChunkDetail;
+    if (!detail || !detail.matchedMessages || detail.matchedMessages.length === 0) return;
+
+    const allTab = document.createElement('button');
+    allTab.className = `tab-btn ${state.chunkQuery.activeTab === 'all' ? 'active' : ''}`;
+    allTab.textContent = `全部聚合 (${detail.matchedMessages.length})`;
+    allTab.addEventListener('click', () => {
+        state.chunkQuery.activeTab = 'all';
+        updateChunkTabTabsActiveState();
+        renderChunkTabCode();
+        renderChunkTabRightPanel();
+    });
+    tabsPanel.appendChild(allTab);
+
+    detail.matchedMessages.forEach(msg => {
+        const tab = document.createElement('button');
+        tab.className = `tab-btn ${state.chunkQuery.activeTab === msg.messageId ? 'active' : ''}`;
+        tab.textContent = `Msg #${msg.messageId}`;
+        tab.addEventListener('click', () => {
+            state.chunkQuery.activeTab = msg.messageId;
+            updateChunkTabTabsActiveState();
+            renderChunkTabCode();
+            renderChunkTabRightPanel();
+        });
+        tabsPanel.appendChild(tab);
+    });
+}
+
+function updateChunkTabTabsActiveState() {
+    const tabsPanel = document.getElementById('chunk-tab-message-tabs');
+    if (!tabsPanel) return;
+    const tabs = tabsPanel.querySelectorAll('.tab-btn');
+    const detail = state.chunkQuery.activeChunkDetail;
+    if (!detail || tabs.length === 0) return;
+
+    tabs[0].classList.toggle('active', state.chunkQuery.activeTab === 'all');
+    (detail.matchedMessages || []).forEach((msg, idx) => {
+        if (tabs[idx + 1]) {
+            tabs[idx + 1].classList.toggle('active', state.chunkQuery.activeTab === msg.messageId);
+        }
+    });
+}
+
+function renderChunkTabRightPanel() {
+    const panel = document.getElementById('chunk-tab-message-content-panel');
+    if (!panel) return;
+    panel.innerHTML = '';
+
+    const detail = state.chunkQuery.activeChunkDetail;
+    if (!detail) return;
+
+    if (!detail.matchedMessages || detail.matchedMessages.length === 0) {
+        panel.innerHTML = `
+            <div class="empty-state">
+                <span style="font-size: 32px; margin-bottom: 12px;">🔍</span>
+                <p>无匹配的 AI 消息源数据</p>
+                <span style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">归因结果为 [NONE]</span>
+            </div>
+        `;
+        return;
+    }
+
+    if (state.chunkQuery.activeTab === 'all') {
+        detail.matchedMessages.forEach(msg => {
+            const card = buildChunkTabMessageCard(msg);
+            panel.appendChild(card);
+        });
+    } else {
+        const msg = detail.matchedMessages.find(m => m.messageId === state.chunkQuery.activeTab);
+        if (msg) {
+            const card = buildChunkTabMessageCard(msg, true);
+            panel.appendChild(card);
+        }
+    }
+}
+
+function buildChunkTabMessageCard(msg) {
+    const card = document.createElement('div');
+    card.className = 'message-card';
+    card.style.display = 'flex';
+    card.style.flexDirection = 'column';
+    card.style.borderBottom = '1px solid var(--border-color)';
+    card.style.paddingBottom = '16px';
+    card.style.background = 'rgba(255, 255, 255, 0.01)';
+
+    const scorePct = (msg.score * 100).toFixed(1) + '%';
+    const dateStr = msg.timestamp ? new Date(msg.timestamp).toLocaleString('zh-CN') : '-';
+
+    const metaHtml = `
+        <div class="message-metadata-card">
+            <div class="meta-header">
+                <h4>🤖 AI Message ID: <span class="color-strict" style="font-family: var(--font-mono)">${msg.messageId}</span></h4>
+                <div class="score-visual">
+                    <span class="badge-score" style="color: #6ee7b7">${scorePct} Match</span>
+                    <div class="score-bar-bg">
+                        <div class="score-bar-fill" style="width: ${msg.score * 100}%"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="meta-details">
+                <div class="meta-item">匹配类型: <strong>${msg.matchType}</strong></div>
+                <div class="meta-item">文件关联: <strong title="${msg.fileName || '未定义'}">${msg.fileName || '无指定'}</strong></div>
+                <div class="meta-item" style="grid-column: span 2">产生时间: <strong>${dateStr}</strong></div>
+            </div>
+        </div>
+    `;
+
+    card.innerHTML = metaHtml;
+
+    const codeTitle = document.createElement('div');
+    codeTitle.className = 'ai-code-viewer-title';
+    codeTitle.textContent = 'AI 消息源码 (Raw Content)';
+    card.appendChild(codeTitle);
+
+    const codeContainer = document.createElement('div');
+    codeContainer.className = 'code-container';
+    codeContainer.style.background = 'var(--bg-code)';
+    codeContainer.style.margin = '4px 20px 8px 20px';
+    codeContainer.style.borderRadius = '8px';
+    codeContainer.style.border = '1px solid var(--border-color)';
+
+    const codeWrapper = document.createElement('div');
+    codeWrapper.className = 'code-wrapper';
+    codeWrapper.style.padding = '12px 0';
+    codeWrapper.style.maxHeight = '360px';
+    codeWrapper.style.overflowY = 'auto';
+
+    const aiToChunkMap = {};
+    if (msg.lineMatches) {
+        msg.lineMatches.forEach(m => {
+            aiToChunkMap[m.aiLineIdx] = m.chunkLineIdx;
+        });
+    }
+
+    const toggleBtn = document.getElementById('chunk-tab-toggle-highlight');
+    const highlightEnabled = toggleBtn ? toggleBtn.checked : true;
+    const codeViewer = document.getElementById('chunk-tab-code-viewer');
+
+    const aiLines = (msg.rawContent || '').split('\n');
+    aiLines.forEach((lineText, idx) => {
+        const lineEl = document.createElement('div');
+        lineEl.className = 'code-line ai-code-line';
+        lineEl.setAttribute('data-line-idx', idx);
+        lineEl.setAttribute('data-msg-id', msg.messageId);
+
+        const lineNumEl = document.createElement('div');
+        lineNumEl.className = 'line-number';
+        lineNumEl.textContent = idx + 1;
+
+        const lineContentEl = document.createElement('div');
+        lineContentEl.className = 'line-content';
+        lineContentEl.textContent = lineText;
+
+        lineEl.appendChild(lineNumEl);
+        lineEl.appendChild(lineContentEl);
+
+        if (aiToChunkMap[idx] !== undefined) {
+            lineEl.classList.add('clickable-line');
+            if (highlightEnabled) {
+                lineEl.classList.add('highlight-ai-permanent');
+            }
+
+            lineEl.addEventListener('mouseenter', () => {
+                const chunkLineIdx = aiToChunkMap[idx];
+                state.chunkQuery.hoveredLineIdx = chunkLineIdx;
+                drawChunkTabConnectionLines(chunkLineIdx);
+
+                if (codeViewer && codeViewer.children[chunkLineIdx]) {
+                    codeViewer.children[chunkLineIdx].classList.add('hover-highlight-from-ai');
+                }
+            });
+            lineEl.addEventListener('mouseleave', () => {
+                const chunkLineIdx = aiToChunkMap[idx];
+                state.chunkQuery.hoveredLineIdx = null;
+                clearChunkTabConnectionLines();
+
+                if (codeViewer && codeViewer.children[chunkLineIdx]) {
+                    codeViewer.children[chunkLineIdx].classList.remove('hover-highlight-from-ai');
+                }
+            });
+        }
+
+        codeWrapper.appendChild(lineEl);
+    });
+
+    codeContainer.appendChild(codeWrapper);
+    card.appendChild(codeContainer);
+
+    return card;
+}
+
+function showLineTooltipForChunk(lineIdx, event) {
+    const detail = state.chunkQuery.activeChunkDetail;
+    if (!detail || !detail.matchedMessages) return;
+
+    const matchingMsgs = detail.matchedMessages.filter(msg => {
+        const indices = msg.contributedLineIndices || [];
+        return indices.includes(lineIdx);
+    });
+
+    if (matchingMsgs.length === 0) return;
+
+    hoverTooltip.innerHTML = '';
+
+    const title = document.createElement('div');
+    title.className = 'tooltip-title';
+    title.textContent = `此行属于 AI 贡献 (Row ${detail.startLine + lineIdx})`;
+    hoverTooltip.appendChild(title);
+
+    matchingMsgs.forEach(msg => {
+        const line = document.createElement('div');
+        line.className = 'tooltip-line';
+        line.innerHTML = `• Msg <strong class="color-strict">${msg.messageId}</strong>: 匹配度 ${(msg.score * 100).toFixed(0)}% (${msg.matchType})`;
+        hoverTooltip.appendChild(line);
+    });
+
+    hoverTooltip.classList.remove('hidden');
+}
+
+function drawChunkTabConnectionLines(chunkLineIdx) {
+    clearChunkTabConnectionLines();
+}
+
+function clearChunkTabConnectionLines() {
+    const svg = document.getElementById('chunk-tab-connection-svg');
+    if (svg) {
+        svg.innerHTML = '';
+    }
+}
+

@@ -21,6 +21,9 @@ import com.macaber.attribution.core.DiffParser;
 import com.macaber.attribution.core.SimilarityEngine;
 import com.macaber.attribution.core.EvaluationResult;
 import com.macaber.attribution.service.AiMessageService;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.macaber.attribution.dao.AttributionChunkDetailMapper;
+import com.macaber.attribution.dto.ChunkQueryResultDto;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -45,6 +48,7 @@ public class ReportController {
 
     private final AttributionResultService resultService;
     private final AttributionChunkDetailService chunkDetailService;
+    private final AttributionChunkDetailMapper chunkDetailMapper;
     private final AttributionFileDetailService fileDetailService;
     private final QueueProducer queueProducer;
     private final AttributionFilter attributionFilter;
@@ -644,6 +648,225 @@ public class ReportController {
             }
             queryWrapper.le("created_at", end);
         }
+    }
+
+    /**
+     * GET /api/reports/chunks
+     * Query pagination list of chunks with filters (userId, repoName, sysCode, startDate, endDate).
+     */
+    @GetMapping("/chunks")
+    public ResponseEntity<?> getChunks(
+            @RequestParam(value = "page", defaultValue = "1") int page,
+            @RequestParam(value = "pageSize", defaultValue = "20") int pageSize,
+            @RequestParam(value = "userId", required = false) String userId,
+            @RequestParam(value = "repoName", required = false) String repoName,
+            @RequestParam(value = "sysCode", required = false) String sysCode,
+            @RequestParam(value = "startDate", required = false) String startDate,
+            @RequestParam(value = "endDate", required = false) String endDate) {
+        log.info("[ReportController] getChunks — page: {}, pageSize: {}, userId: {}, repoName: {}, sysCode: {}, startDate: {}, endDate: {}",
+                page, pageSize, userId, repoName, sysCode, startDate, endDate);
+
+        if (pageSize > 100) {
+            pageSize = 100;
+        }
+
+        String start = startDate != null && !startDate.trim().isEmpty() ? startDate.trim() : null;
+        if (start != null && start.length() == 10) {
+            start += " 00:00:00";
+        }
+        String end = endDate != null && !endDate.trim().isEmpty() ? endDate.trim() : null;
+        if (end != null && end.length() == 10) {
+            end += " 23:59:59";
+        }
+
+        IPage<ChunkQueryResultDto> chunkPage = chunkDetailMapper.selectChunkWithReportPage(
+                new Page<>(page, pageSize),
+                userId != null && !userId.trim().isEmpty() ? userId.trim() : null,
+                repoName != null && !repoName.trim().isEmpty() ? repoName.trim() : null,
+                sysCode != null && !sysCode.trim().isEmpty() ? sysCode.trim() : null,
+                start,
+                end
+        );
+
+        Map<String, Object> summaryMap = chunkDetailMapper.selectChunkSummary(
+                userId != null && !userId.trim().isEmpty() ? userId.trim() : null,
+                repoName != null && !repoName.trim().isEmpty() ? repoName.trim() : null,
+                sysCode != null && !sysCode.trim().isEmpty() ? sysCode.trim() : null,
+                start,
+                end
+        );
+
+        long totalAnalyzed = 0;
+        double totalAiContributed = 0.0;
+        if (summaryMap != null) {
+            if (summaryMap.get("totalAnalyzedLines") != null) {
+                totalAnalyzed = ((Number) summaryMap.get("totalAnalyzedLines")).longValue();
+            }
+            if (summaryMap.get("totalAiContributedLines") != null) {
+                totalAiContributed = ((Number) summaryMap.get("totalAiContributedLines")).doubleValue();
+            }
+        }
+        double aiRatio = totalAnalyzed > 0 ? totalAiContributed / totalAnalyzed : 0.0;
+        totalAiContributed = Math.round(totalAiContributed * 100.0) / 100.0;
+        aiRatio = Math.round(aiRatio * 10000.0) / 10000.0;
+
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("totalAnalyzedLines", totalAnalyzed);
+        summary.put("totalAiContributedLines", totalAiContributed);
+        summary.put("aiRatio", aiRatio);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("data", chunkPage.getRecords());
+        response.put("pagination", Map.of(
+                "page", chunkPage.getCurrent(),
+                "pageSize", chunkPage.getSize(),
+                "total", chunkPage.getTotal(),
+                "totalPages", chunkPage.getPages()
+        ));
+        response.put("summary", summary);
+
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * GET /api/reports/chunks/{chunkId}/detail
+     * Query detail and AI trace visualization for a specific chunk ID.
+     */
+    @GetMapping("/chunks/{chunkId}/detail")
+    public ResponseEntity<?> getChunkDetail(@PathVariable("chunkId") Long chunkId) {
+        log.info("[ReportController] getChunkDetail — chunkId: {}", chunkId);
+        if (chunkId == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "chunkId is required"));
+        }
+
+        AttributionChunkDetail chunkDetail = chunkDetailService.getById(chunkId);
+        if (chunkDetail == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("error", "Chunk not found for id: " + chunkId));
+        }
+
+        AttributionResult report = resultService.getById(chunkDetail.getReportId());
+
+        List<AttributionFileDetail> fileDetails = fileDetailService.list(
+                new LambdaQueryWrapper<AttributionFileDetail>()
+                        .eq(AttributionFileDetail::getReportId, chunkDetail.getReportId())
+                        .eq(AttributionFileDetail::getFilePath, chunkDetail.getFilePath())
+        );
+
+        AttributionFileDetail file = fileDetails.isEmpty() ? null : fileDetails.get(0);
+        String chunkContent = "";
+        int fileAddedLineCount = 0;
+
+        if (file != null && file.getDiff() != null && !file.getDiff().trim().isEmpty()) {
+            DiffParser diffParser = new DiffParser();
+            List<DiffChunk> chunks = diffParser.parse(file.getDiff());
+            fileAddedLineCount = chunks.stream()
+                    .mapToInt(c -> c.getEndLine() - c.getStartLine() + 1)
+                    .sum();
+
+            DiffChunk matchedChunk = chunks.stream()
+                    .filter(c -> chunkDetail.getStartLine() != null && c.getStartLine() == chunkDetail.getStartLine()
+                            && chunkDetail.getEndLine() != null && c.getEndLine() == chunkDetail.getEndLine())
+                    .findFirst()
+                    .orElse(null);
+
+            if (matchedChunk != null) {
+                chunkContent = matchedChunk.getContent();
+            } else if (!chunks.isEmpty()) {
+                chunkContent = chunks.get(0).getContent();
+            }
+        }
+
+        List<MatchedMessageVisualizationDto> matchedMessages = new ArrayList<>();
+        Set<Integer> overallContributedLines = new HashSet<>();
+
+        String matchedIdsStr = chunkDetail.getMatchedMessageIds();
+        if (matchedIdsStr != null && !matchedIdsStr.trim().isEmpty()) {
+            String[] messageIds = matchedIdsStr.split(",");
+            List<Long> ids = new ArrayList<>();
+            for (String idStr : messageIds) {
+                try {
+                    ids.add(Long.parseLong(idStr.trim()));
+                } catch (NumberFormatException e) {
+                    // ignore
+                }
+            }
+
+            if (!ids.isEmpty()) {
+                List<AiMessage> aiMessages = aiMessageService.listByIds(ids);
+                for (AiMessage aiMsg : aiMessages) {
+                    String rawContent = "";
+                    try {
+                        Map<String, Object> args = objectMapper.readValue(aiMsg.getFunctionArguments(),
+                                new TypeReference<Map<String, Object>>() {});
+                        if ("edit".equals(aiMsg.getFunctionName()) && args.containsKey("newString")) {
+                            rawContent = (String) args.get("newString");
+                        } else if ("write".equals(aiMsg.getFunctionName()) && args.containsKey("content")) {
+                            rawContent = (String) args.get("content");
+                        }
+                    } catch (Exception e) {
+                        log.warn("[ReportController] Failed to parse arguments for ai message {}", aiMsg.getId());
+                    }
+
+                    if (rawContent != null && !rawContent.trim().isEmpty()) {
+                        SimilarityEngine.EvaluationContext ctx = SimilarityEngine.EvaluationContext.builder()
+                                .fileContent(file != null ? file.getCode() : "")
+                                .filePath(chunkDetail.getFilePath())
+                                .addedLineCount(fileAddedLineCount)
+                                .chunkStartLine(chunkDetail.getStartLine())
+                                .chunkEndLine(chunkDetail.getEndLine())
+                                .build();
+
+                        EvaluationResult evalResult = similarityEngine.evaluateChunk(
+                                rawContent, chunkContent, ctx
+                        );
+
+                        Set<Integer> indices = evalResult.getContributedLineIndices();
+                        if (indices == null) {
+                            indices = new HashSet<>();
+                        }
+                        overallContributedLines.addAll(indices);
+
+                        matchedMessages.add(MatchedMessageVisualizationDto.builder()
+                                .messageId(String.valueOf(aiMsg.getId()))
+                                .rawContent(rawContent)
+                                .fileName(aiMsg.getFileName())
+                                .timestamp(aiMsg.getCreatedAt())
+                                .score(evalResult.getScore())
+                                .matchType(evalResult.getMatchType().name())
+                                .contributedLineIndices(indices)
+                                .lineMatches(evalResult.getLineMatches())
+                                .build());
+                    }
+                }
+            }
+        }
+
+        matchedMessages.sort((a, b) -> Double.compare(b.getScore(), a.getScore()));
+
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("chunkId", chunkDetail.getId());
+        response.put("reportId", chunkDetail.getReportId());
+        response.put("filePath", chunkDetail.getFilePath());
+        response.put("startLine", chunkDetail.getStartLine());
+        response.put("endLine", chunkDetail.getEndLine());
+        response.put("userId", chunkDetail.getUserId());
+        response.put("attribution", chunkDetail.getAttribution());
+        response.put("score", chunkDetail.getScore() != null ? chunkDetail.getScore() : 0.0);
+        response.put("matchType", chunkDetail.getMatchType() != null ? chunkDetail.getMatchType() : "NONE");
+        response.put("level", chunkDetail.getLevel() != null ? chunkDetail.getLevel() : "FAILED_ALL");
+        response.put("chunkContent", chunkContent);
+        response.put("contributedLineIndices", overallContributedLines);
+        response.put("matchedMessages", matchedMessages);
+
+        // Report Metadata
+        response.put("repoName", report != null ? report.getRepoName() : "");
+        response.put("sysCode", report != null ? report.getSysCode() : "");
+        response.put("source", report != null ? report.getSource() : "");
+        response.put("target", report != null ? report.getTarget() : "");
+        response.put("reportCreatedAt", report != null ? report.getCreatedAt() : null);
+
+        return ResponseEntity.ok(response);
     }
 
     /**
