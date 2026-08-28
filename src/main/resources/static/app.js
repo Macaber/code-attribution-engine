@@ -902,18 +902,18 @@ function buildMessageCard(msg, showExpanded = false) {
     const metaHtml = `
         <div class="message-metadata-card">
             <div class="meta-header">
-                <h4>🤖 AI Message ID: <span class="color-strict" style="font-family: var(--font-mono)">${msg.messageId}</span></h4>
+                <h4>🤖 AI Message ID: <span class="color-strict" style="font-family: var(--font-mono)">${escapeHtml(msg.messageId)}</span></h4>
                 <div class="score-visual">
-                    <span class="badge-score" style="color: #6ee7b7">${scorePct} Match</span>
+                    <span class="badge-score" style="color: #6ee7b7">${escapeHtml(scorePct)} Match</span>
                     <div class="score-bar-bg">
                         <div class="score-bar-fill" style="width: ${msg.score * 100}%"></div>
                     </div>
                 </div>
             </div>
             <div class="meta-details">
-                <div class="meta-item">匹配类型: <strong>${msg.matchType}</strong></div>
-                <div class="meta-item">文件关联: <strong title="${msg.fileName || '未定义'}">${msg.fileName || '无指定'}</strong></div>
-                <div class="meta-item" style="grid-column: span 2">产生时间: <strong>${dateStr}</strong></div>
+                <div class="meta-item">匹配类型: <strong>${escapeHtml(msg.matchType)}</strong></div>
+                <div class="meta-item">文件关联: <strong title="${escapeHtml(msg.fileName || '未定义')}">${escapeHtml(msg.fileName) || '无指定'}</strong></div>
+                <div class="meta-item" style="grid-column: span 2">产生时间: <strong>${escapeHtml(dateStr)}</strong></div>
             </div>
         </div>
     `;
@@ -1298,6 +1298,17 @@ function renderStatsTable() {
 
 // ── Submitter Chunks Query Dashboard Logic ──
 
+// Escape untrusted text (file paths, repo names, user ids...) before inserting into innerHTML templates
+function escapeHtml(value) {
+    if (value === null || value === undefined) return '';
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 async function fetchChunksList() {
     const listContainer = document.getElementById('chunks-list-container');
     const totalCountSpan = document.getElementById('chunks-total-count');
@@ -1375,20 +1386,20 @@ function renderChunksList() {
 
         item.innerHTML = `
             <div class="card-title-row">
-                <span class="file-path-text" title="${chunk.filePath}">${chunk.filePath}</span>
-                <span class="chunk-badge ${attributionClass}">${attributionClass.replace('_', ' ')} ${scorePercent}</span>
+                <span class="file-path-text" title="${escapeHtml(chunk.filePath)}">${escapeHtml(chunk.filePath)}</span>
+                <span class="chunk-badge ${escapeHtml(attributionClass)}">${escapeHtml(attributionClass.replace('_', ' '))} ${escapeHtml(scorePercent)}</span>
             </div>
             <div class="card-info-row">
-                <span class="badge badge-lines">Lines ${chunk.startLine}-${chunk.endLine} (${chunk.analyzedLines || 0}行)</span>
-                <span class="badge badge-user">👤 ${chunk.userId || '未知提交人'}</span>
+                <span class="badge badge-lines">Lines ${escapeHtml(chunk.startLine)}-${escapeHtml(chunk.endLine)} (${escapeHtml(chunk.analyzedLines || 0)}行)</span>
+                <span class="badge badge-user">👤 ${escapeHtml(chunk.userId) || '未知提交人'}</span>
             </div>
             <div class="card-meta-row">
-                <span class="meta-tag tag-repo" title="仓库: ${chunk.repoName}">📦 ${chunk.repoName || '-'}</span>
-                <span class="meta-tag tag-sys" title="系统: ${chunk.sysCode}">🖥️ ${chunk.sysCode || '-'}</span>
+                <span class="meta-tag tag-repo" title="仓库: ${escapeHtml(chunk.repoName)}">📦 ${escapeHtml(chunk.repoName) || '-'}</span>
+                <span class="meta-tag tag-sys" title="系统: ${escapeHtml(chunk.sysCode)}">🖥️ ${escapeHtml(chunk.sysCode) || '-'}</span>
             </div>
             <div class="card-branch-row">
-                <span class="meta-tag tag-branch" title="分支: ${chunk.source} -> ${chunk.target}">🔀 ${chunk.source || '-'} ➔ ${chunk.target || '-'}</span>
-                <span class="meta-time">${formattedDate}</span>
+                <span class="meta-tag tag-branch" title="分支: ${escapeHtml(chunk.source)} -> ${escapeHtml(chunk.target)}">🔀 ${escapeHtml(chunk.source) || '-'} ➔ ${escapeHtml(chunk.target) || '-'}</span>
+                <span class="meta-time">${escapeHtml(formattedDate)}</span>
             </div>
         `;
 
@@ -1614,18 +1625,18 @@ function buildChunkTabMessageCard(msg) {
     const metaHtml = `
         <div class="message-metadata-card">
             <div class="meta-header">
-                <h4>🤖 AI Message ID: <span class="color-strict" style="font-family: var(--font-mono)">${msg.messageId}</span></h4>
+                <h4>🤖 AI Message ID: <span class="color-strict" style="font-family: var(--font-mono)">${escapeHtml(msg.messageId)}</span></h4>
                 <div class="score-visual">
-                    <span class="badge-score" style="color: #6ee7b7">${scorePct} Match</span>
+                    <span class="badge-score" style="color: #6ee7b7">${escapeHtml(scorePct)} Match</span>
                     <div class="score-bar-bg">
                         <div class="score-bar-fill" style="width: ${msg.score * 100}%"></div>
                     </div>
                 </div>
             </div>
             <div class="meta-details">
-                <div class="meta-item">匹配类型: <strong>${msg.matchType}</strong></div>
-                <div class="meta-item">文件关联: <strong title="${msg.fileName || '未定义'}">${msg.fileName || '无指定'}</strong></div>
-                <div class="meta-item" style="grid-column: span 2">产生时间: <strong>${dateStr}</strong></div>
+                <div class="meta-item">匹配类型: <strong>${escapeHtml(msg.matchType)}</strong></div>
+                <div class="meta-item">文件关联: <strong title="${escapeHtml(msg.fileName || '未定义')}">${escapeHtml(msg.fileName) || '无指定'}</strong></div>
+                <div class="meta-item" style="grid-column: span 2">产生时间: <strong>${escapeHtml(dateStr)}</strong></div>
             </div>
         </div>
     `;

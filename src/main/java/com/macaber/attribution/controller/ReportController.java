@@ -22,7 +22,6 @@ import com.macaber.attribution.core.SimilarityEngine;
 import com.macaber.attribution.core.EvaluationResult;
 import com.macaber.attribution.service.AiMessageService;
 import com.baomidou.mybatisplus.core.metadata.IPage;
-import com.macaber.attribution.dao.AttributionChunkDetailMapper;
 import com.macaber.attribution.dto.ChunkQueryResultDto;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -48,7 +47,6 @@ public class ReportController {
 
     private final AttributionResultService resultService;
     private final AttributionChunkDetailService chunkDetailService;
-    private final AttributionChunkDetailMapper chunkDetailMapper;
     private final AttributionFileDetailService fileDetailService;
     private final QueueProducer queueProducer;
     private final AttributionFilter attributionFilter;
@@ -666,6 +664,12 @@ public class ReportController {
         log.info("[ReportController] getChunks — page: {}, pageSize: {}, userId: {}, repoName: {}, sysCode: {}, startDate: {}, endDate: {}",
                 page, pageSize, userId, repoName, sysCode, startDate, endDate);
 
+        if (page < 1) {
+            page = 1;
+        }
+        if (pageSize <= 0) {
+            pageSize = 20;
+        }
         if (pageSize > 100) {
             pageSize = 100;
         }
@@ -679,7 +683,7 @@ public class ReportController {
             end += " 23:59:59";
         }
 
-        IPage<ChunkQueryResultDto> chunkPage = chunkDetailMapper.selectChunkWithReportPage(
+        IPage<ChunkQueryResultDto> chunkPage = chunkDetailService.selectChunkWithReportPage(
                 new Page<>(page, pageSize),
                 userId != null && !userId.trim().isEmpty() ? userId.trim() : null,
                 repoName != null && !repoName.trim().isEmpty() ? repoName.trim() : null,
@@ -688,7 +692,7 @@ public class ReportController {
                 end
         );
 
-        Map<String, Object> summaryMap = chunkDetailMapper.selectChunkSummary(
+        Map<String, Object> summaryMap = chunkDetailService.selectChunkSummary(
                 userId != null && !userId.trim().isEmpty() ? userId.trim() : null,
                 repoName != null && !repoName.trim().isEmpty() ? repoName.trim() : null,
                 sysCode != null && !sysCode.trim().isEmpty() ? sysCode.trim() : null,

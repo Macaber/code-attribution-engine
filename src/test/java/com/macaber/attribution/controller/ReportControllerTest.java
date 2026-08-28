@@ -52,9 +52,6 @@ class ReportControllerTest {
     @MockBean
     private com.macaber.attribution.service.AiMessageService aiMessageService;
 
-    @MockBean
-    private com.macaber.attribution.dao.AttributionChunkDetailMapper chunkDetailMapper;
-
 
 
     @Test
@@ -355,7 +352,7 @@ class ReportControllerTest {
         pageResult.setTotal(1);
         pageResult.setPages(1);
 
-        Mockito.when(chunkDetailMapper.selectChunkWithReportPage(any(), any(), any(), any(), any(), any()))
+        Mockito.when(chunkDetailService.selectChunkWithReportPage(any(), any(), any(), any(), any(), any()))
                 .thenReturn(pageResult);
 
         mockMvc.perform(get("/api/reports/chunks")
