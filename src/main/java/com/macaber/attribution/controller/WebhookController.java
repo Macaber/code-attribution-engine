@@ -60,27 +60,40 @@ public class WebhookController {
                     .body(Map.of("error", "Invalid detail field: expected JSON array of {path, code, diff}"));
         }
 
-        // Clean up old report if it exists to avoid unique key conflict and keep the latest details
+        // Find existing report by (mergeId, sysCode) or create a new one to preserve original createdAt
         String sysCode = payload.getSysCode() != null ? payload.getSysCode() : "";
-        resultService.remove(new LambdaQueryWrapper<AttributionResult>()
+        AttributionResult report = resultService.getOne(new LambdaQueryWrapper<AttributionResult>()
                 .eq(AttributionResult::getMergeId, payload.getMergeId())
                 .eq(AttributionResult::getSysCode, sysCode));
 
-        // Create an empty report record early to get an ID for file details mapping
-        AttributionResult report = AttributionResult.builder()
-                .mergeId(payload.getMergeId())
-                .repoName(payload.getRepoName())
-                .userId(payload.getOa())
-                .sysCode(sysCode)
-                .title(payload.getTitle())
-                .source(payload.getSource())
-                .target(payload.getTarget())
-                .createdAt(LocalDateTime.now())
-                .build();
-        resultService.save(report);
+        if (report == null) {
+            report = AttributionResult.builder()
+                    .mergeId(payload.getMergeId())
+                    .repoName(payload.getRepoName())
+                    .userId(payload.getOa())
+                    .sysCode(sysCode)
+                    .title(payload.getTitle())
+                    .source(payload.getSource())
+                    .target(payload.getTarget())
+                    .createdAt(LocalDateTime.now())
+                    .build();
+            resultService.save(report);
+        } else {
+            // Update metadata while keeping original ID and createdAt timestamp intact
+            report.setRepoName(payload.getRepoName());
+            report.setUserId(payload.getOa());
+            report.setTitle(payload.getTitle());
+            report.setSource(payload.getSource());
+            report.setTarget(payload.getTarget());
+            resultService.updateById(report);
+        }
+
+        final Long reportId = report.getId();
 
         // Save original request file details (path, code, diff) immediately
         if (!fileDetails.isEmpty()) {
+            fileDetailService.remove(new LambdaQueryWrapper<AttributionFileDetail>()
+                    .eq(AttributionFileDetail::getReportId, reportId));
             List<AttributionFileDetail> dbFileDetails = fileDetails.stream()
                     .map(f -> {
                         String filePath = f.getPath();
@@ -91,7 +104,7 @@ public class WebhookController {
                         String diff = shouldExcludeContent ? null : truncate(f.getDiff());
 
                         return AttributionFileDetail.builder()
-                                .reportId(report.getId())
+                                .reportId(reportId)
                                 .filePath(filePath)
                                 .code(code)
                                 .diff(diff)

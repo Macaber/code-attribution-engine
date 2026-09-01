@@ -661,6 +661,12 @@ public class AttributionWorker {
         if (jobData.getReportId() != null) {
             resultRecord = resultService.getById(jobData.getReportId());
         }
+        if (resultRecord == null && jobData.getMergeId() != null) {
+            String sysCode = jobData.getSysCode() != null ? jobData.getSysCode() : "";
+            resultRecord = resultService.getOne(new LambdaQueryWrapper<AttributionResult>()
+                    .eq(AttributionResult::getMergeId, jobData.getMergeId())
+                    .eq(AttributionResult::getSysCode, sysCode));
+        }
         if (resultRecord == null) {
             resultRecord = AttributionResult.builder()
                     .mergeId(jobData.getMergeId())
