@@ -67,13 +67,13 @@ public class AttributionWorker {
     private volatile boolean isRunning = true;
 
     @Value("${attribution.worker.threads:2}")
-    private int threadCount;
+    private int threadCount = 2;
 
     @Value("${attribution.worker.ai-message.limit:1000}")
-    private int aiMessageLimit;
+    private int aiMessageLimit = 1000;
 
     @Value("${attribution.worker.ai-message.timeframe-days:30}")
-    private int aiMessageTimeframeDays;
+    private int aiMessageTimeframeDays = 30;
 
     @PostConstruct
     public void init() {
@@ -304,7 +304,7 @@ public class AttributionWorker {
      * Queries ai_messages table for edit/write function calls within the last month,
      * extracts the raw code content from function arguments.
      */
-    private List<AiMessageDto> fetchAiMessages(Set<String> userIds, Integer timeframeDays) {
+    List<AiMessageDto> fetchAiMessages(Set<String> userIds, Integer timeframeDays) {
         if (userIds == null || userIds.isEmpty()) {
             return Collections.emptyList();
         }
@@ -312,14 +312,21 @@ public class AttributionWorker {
         int days = timeframeDays != null ? timeframeDays : aiMessageTimeframeDays;
         LocalDateTime startTime = LocalDateTime.now().minusDays(days);
 
-        LambdaQueryWrapper<AiMessage> queryWrapper = new LambdaQueryWrapper<>();
-        queryWrapper.in(AiMessage::getUserOa, userIds)
-                .in(AiMessage::getFunctionName, Arrays.asList("edit", "write"))
-                .ge(AiMessage::getCreatedAt, startTime)
-                .orderByDesc(AiMessage::getCreatedAt)
-                .last("LIMIT " + aiMessageLimit);
+        List<AiMessage> rows = new ArrayList<>();
+        for (String userId : userIds) {
+            if (userId == null || userId.trim().isEmpty()) {
+                continue;
+            }
+            LambdaQueryWrapper<AiMessage> queryWrapper = new LambdaQueryWrapper<>();
+            queryWrapper.eq(AiMessage::getUserOa, userId)
+                    .in(AiMessage::getFunctionName, Arrays.asList("edit", "write"))
+                    .ge(AiMessage::getCreatedAt, startTime)
+                    .orderByDesc(AiMessage::getCreatedAt)
+                    .last("LIMIT " + aiMessageLimit);
 
-        List<AiMessage> rows = aiMessageService.list(queryWrapper);
+            rows.addAll(aiMessageService.list(queryWrapper));
+        }
+
         List<AiMessageDto> aiMessages = new ArrayList<>();
 
         for (AiMessage row : rows) {

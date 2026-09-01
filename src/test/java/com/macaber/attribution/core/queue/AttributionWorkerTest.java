@@ -266,4 +266,63 @@ class AttributionWorkerTest {
         assertNotNull(matchResult.getBestMatch());
         assertEquals(MatchType.STRICT.name(), matchResult.getBestMatch().getMatchType());
     }
+
+    @Test
+    void testFetchAiMessages_MultiUser_QueriesIndependently() {
+        com.macaber.attribution.service.AiMessageService aiMessageService =
+                org.mockito.Mockito.mock(com.macaber.attribution.service.AiMessageService.class);
+        com.fasterxml.jackson.databind.ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
+
+        AttributionWorker worker = new AttributionWorker(
+                null, null, aiMessageService, null, null, null, objectMapper, null
+        );
+
+        com.macaber.attribution.entity.AiMessage msg1 = new com.macaber.attribution.entity.AiMessage();
+        msg1.setId(101L);
+        msg1.setUserOa("userA");
+        msg1.setFunctionName("edit");
+        msg1.setFunctionArguments("{\"newString\":\"const a = 1;\"}");
+        msg1.setCreatedAt(java.time.LocalDateTime.now());
+
+        com.macaber.attribution.entity.AiMessage msg2 = new com.macaber.attribution.entity.AiMessage();
+        msg2.setId(202L);
+        msg2.setUserOa("userB");
+        msg2.setFunctionName("write");
+        msg2.setFunctionArguments("{\"content\":\"function b() { return 2; }\"}");
+        msg2.setCreatedAt(java.time.LocalDateTime.now());
+
+        java.util.concurrent.atomic.AtomicInteger callCount = new java.util.concurrent.atomic.AtomicInteger(0);
+        org.mockito.Mockito.when(aiMessageService.list(org.mockito.Mockito.<com.baomidou.mybatisplus.core.conditions.Wrapper<com.macaber.attribution.entity.AiMessage>>any()))
+                .thenAnswer(invocation -> {
+                    int count = callCount.incrementAndGet();
+                    if (count == 1) {
+                        return List.of(msg1);
+                    } else if (count == 2) {
+                        return List.of(msg2);
+                    }
+                    return List.of();
+                });
+
+        Set<String> userIds = new java.util.LinkedHashSet<>(List.of("userA", "userB"));
+        List<AiMessageDto> result = worker.fetchAiMessages(userIds, 30);
+
+        // Verify that aiMessageService.list was called once for each user (2 times total)
+        org.mockito.Mockito.verify(aiMessageService, org.mockito.Mockito.times(2))
+                .list(org.mockito.Mockito.<com.baomidou.mybatisplus.core.conditions.Wrapper<com.macaber.attribution.entity.AiMessage>>any());
+
+        assertEquals(2, result.size());
+    }
+
+    @Test
+    void testFetchAiMessages_EmptyOrNullUserIds() {
+        com.macaber.attribution.service.AiMessageService aiMessageService =
+                org.mockito.Mockito.mock(com.macaber.attribution.service.AiMessageService.class);
+        AttributionWorker worker = new AttributionWorker(
+                null, null, aiMessageService, null, null, null, new com.fasterxml.jackson.databind.ObjectMapper(), null
+        );
+
+        assertTrue(worker.fetchAiMessages(null, 30).isEmpty());
+        assertTrue(worker.fetchAiMessages(java.util.Collections.emptySet(), 30).isEmpty());
+        org.mockito.Mockito.verifyNoInteractions(aiMessageService);
+    }
 }
