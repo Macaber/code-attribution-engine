@@ -73,7 +73,13 @@ public class ReportController {
         log.info("[ReportController] getReports — page: {}, pageSize: {}, userId: {}, repoName: {}, sysCode: {}, startDate: {}, endDate: {}, sortBy: {}, sortOrder: {}",
                 page, pageSize, userId, repoName, sysCode, startDate, endDate, sortBy, sortOrder);
 
-        // Validate max page size
+        // Validate page and page size
+        if (page < 1) {
+            page = 1;
+        }
+        if (pageSize <= 0) {
+            pageSize = 20;
+        }
         if (pageSize > 100) {
             pageSize = 100;
         }

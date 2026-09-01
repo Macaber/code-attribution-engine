@@ -18,6 +18,7 @@ import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -402,6 +403,51 @@ class ReportControllerTest {
                 .andExpect(jsonPath("$.sysCode").value("SYS01"))
                 .andExpect(jsonPath("$.source").value("feature"))
                 .andExpect(jsonPath("$.target").value("main"));
+    }
+
+    @Test
+    void testGetReports_NegativeOrZeroPageSize_NormalizedToDefault() throws Exception {
+        com.baomidou.mybatisplus.extension.plugins.pagination.Page<AttributionResult> pageResult =
+                new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(1, 20);
+        pageResult.setRecords(Collections.emptyList());
+        pageResult.setTotal(0);
+        pageResult.setPages(0);
+
+        org.mockito.ArgumentCaptor<com.baomidou.mybatisplus.extension.plugins.pagination.Page<AttributionResult>> pageCaptor =
+                org.mockito.ArgumentCaptor.forClass(com.baomidou.mybatisplus.extension.plugins.pagination.Page.class);
+
+        Mockito.when(resultService.page(pageCaptor.capture(), any())).thenReturn(pageResult);
+
+        // Test with negative pageSize and negative page
+        mockMvc.perform(get("/api/reports")
+                        .param("page", "-5")
+                        .param("pageSize", "-1"))
+                .andExpect(status().isOk());
+
+        com.baomidou.mybatisplus.extension.plugins.pagination.Page<AttributionResult> capturedPage = pageCaptor.getValue();
+        assertEquals(1, capturedPage.getCurrent(), "Negative page should be normalized to 1");
+        assertEquals(20, capturedPage.getSize(), "Negative pageSize should be normalized to 20");
+    }
+
+    @Test
+    void testGetReports_ExceedsMaxPageSize_NormalizedTo100() throws Exception {
+        com.baomidou.mybatisplus.extension.plugins.pagination.Page<AttributionResult> pageResult =
+                new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(1, 100);
+        pageResult.setRecords(Collections.emptyList());
+        pageResult.setTotal(0);
+        pageResult.setPages(0);
+
+        org.mockito.ArgumentCaptor<com.baomidou.mybatisplus.extension.plugins.pagination.Page<AttributionResult>> pageCaptor =
+                org.mockito.ArgumentCaptor.forClass(com.baomidou.mybatisplus.extension.plugins.pagination.Page.class);
+
+        Mockito.when(resultService.page(pageCaptor.capture(), any())).thenReturn(pageResult);
+
+        mockMvc.perform(get("/api/reports")
+                        .param("pageSize", "500"))
+                .andExpect(status().isOk());
+
+        com.baomidou.mybatisplus.extension.plugins.pagination.Page<AttributionResult> capturedPage = pageCaptor.getValue();
+        assertEquals(100, capturedPage.getSize(), "PageSize > 100 should be capped at 100");
     }
 }
 

@@ -678,7 +678,6 @@ public class AttributionWorker {
                     .target(jobData.getTarget())
                     .createdAt(LocalDateTime.now())
                     .build();
-            resultService.save(resultRecord);
         }
 
         resultRecord.setTotalCodeLines(totalCodeLines);
@@ -693,14 +692,6 @@ public class AttributionWorker {
         resultRecord.setDeepRefactorMatches(deepRefactorMatches);
         resultRecord.setNoMatches(noMatches);
         resultRecord.setElapsedMs((int) elapsedMs);
-
-        resultService.updateById(resultRecord);
-
-        // Delete old chunk details if recalculating
-        if (resultRecord.getId() != null) {
-            chunkDetailService.remove(new LambdaQueryWrapper<AttributionChunkDetail>()
-                    .eq(AttributionChunkDetail::getReportId, resultRecord.getId()));
-        }
 
         List<AttributionChunkDetail> chunkDetails = new ArrayList<>();
         for (MatchResult r : results) {
@@ -722,10 +713,9 @@ public class AttributionWorker {
                     .build();
             chunkDetails.add(detail);
         }
-        
-        if (!chunkDetails.isEmpty()) {
-            chunkDetailService.saveBatch(chunkDetails);
-        }
+
+        // Save report summary, clear old chunk details and batch insert new chunk details in a single database transaction
+        resultService.saveReportWithChunkDetails(resultRecord, chunkDetails);
 
         log.info("[Worker] Finished processing job for mergeId: {}. AI Contributed Lines: {}, Ratio: {}",
                 jobData.getMergeId(), totalAiContributedLines, ratio);
