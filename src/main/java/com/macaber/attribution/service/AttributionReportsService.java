@@ -2,15 +2,14 @@ package com.macaber.attribution.service;
 
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.macaber.attribution.entity.AttributionChunkDetail;
-import com.macaber.attribution.entity.AttributionResult;
+import com.macaber.attribution.entity.AttributionReports;
 
 import java.util.List;
 
-public interface AttributionResultService extends IService<AttributionResult> {
+public interface AttributionReportsService extends IService<AttributionReports> {
 
     /**
      * Atomically save/update report summary, clear old chunk details and batch insert new chunk details.
      */
-    void saveReportWithChunkDetails(AttributionResult report, List<AttributionChunkDetail> chunkDetails);
+    void saveReportWithChunkDetails(AttributionReports report, List<AttributionChunkDetail> chunkDetails);
 }
-

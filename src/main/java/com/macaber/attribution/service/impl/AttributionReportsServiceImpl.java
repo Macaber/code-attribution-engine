@@ -2,11 +2,11 @@ package com.macaber.attribution.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.macaber.attribution.dao.AttributionResultMapper;
+import com.macaber.attribution.dao.AttributionReportsMapper;
 import com.macaber.attribution.entity.AttributionChunkDetail;
-import com.macaber.attribution.entity.AttributionResult;
+import com.macaber.attribution.entity.AttributionReports;
 import com.macaber.attribution.service.AttributionChunkDetailService;
-import com.macaber.attribution.service.AttributionResultService;
+import com.macaber.attribution.service.AttributionReportsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,13 +15,13 @@ import java.util.List;
 
 @Service
 @RequiredArgsConstructor
-public class AttributionResultServiceImpl extends ServiceImpl<AttributionResultMapper, AttributionResult> implements AttributionResultService {
+public class AttributionReportsServiceImpl extends ServiceImpl<AttributionReportsMapper, AttributionReports> implements AttributionReportsService {
 
     private final AttributionChunkDetailService chunkDetailService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void saveReportWithChunkDetails(AttributionResult report, List<AttributionChunkDetail> chunkDetails) {
+    public void saveReportWithChunkDetails(AttributionReports report, List<AttributionChunkDetail> chunkDetails) {
         if (report.getId() == null) {
             save(report);
         } else {

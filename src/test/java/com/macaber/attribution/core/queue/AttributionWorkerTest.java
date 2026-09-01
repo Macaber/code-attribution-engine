@@ -124,7 +124,7 @@ class AttributionWorkerTest {
         org.redisson.api.RedissonClient redissonClient = org.mockito.Mockito.mock(org.redisson.api.RedissonClient.class);
         SimilarityEngine similarityEngine = org.mockito.Mockito.mock(SimilarityEngine.class);
         com.macaber.attribution.service.AiMessageService aiMessageService = org.mockito.Mockito.mock(com.macaber.attribution.service.AiMessageService.class);
-        com.macaber.attribution.service.AttributionResultService resultService = org.mockito.Mockito.mock(com.macaber.attribution.service.AttributionResultService.class);
+        com.macaber.attribution.service.AttributionReportsService resultService = org.mockito.Mockito.mock(com.macaber.attribution.service.AttributionReportsService.class);
         com.macaber.attribution.service.AttributionChunkDetailService chunkDetailService = org.mockito.Mockito.mock(com.macaber.attribution.service.AttributionChunkDetailService.class);
         com.macaber.attribution.service.AttributionFailedJobService failedJobService = org.mockito.Mockito.mock(com.macaber.attribution.service.AttributionFailedJobService.class);
         com.fasterxml.jackson.databind.ObjectMapper objectMapper = org.mockito.Mockito.mock(com.fasterxml.jackson.databind.ObjectMapper.class);
@@ -194,8 +194,8 @@ class AttributionWorkerTest {
         SimilarityEngine similarityEngine = org.mockito.Mockito.mock(SimilarityEngine.class);
         com.macaber.attribution.service.AiMessageService aiMessageService =
                 org.mockito.Mockito.mock(com.macaber.attribution.service.AiMessageService.class);
-        com.macaber.attribution.service.AttributionResultService resultService =
-                org.mockito.Mockito.mock(com.macaber.attribution.service.AttributionResultService.class);
+        com.macaber.attribution.service.AttributionReportsService resultService =
+                org.mockito.Mockito.mock(com.macaber.attribution.service.AttributionReportsService.class);
         com.macaber.attribution.service.AttributionChunkDetailService chunkDetailService =
                 org.mockito.Mockito.mock(com.macaber.attribution.service.AttributionChunkDetailService.class);
         com.macaber.attribution.service.AttributionFailedJobService failedJobService =

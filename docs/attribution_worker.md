@@ -12,7 +12,7 @@
   * `RedissonClient`：连接 Redis 并获取双端阻塞队列。
   * `SimilarityEngine`：核心相似度比对管线。
   * `AiMessageService`：查询数据库获取用户的 AI 历史生成代码。
-  * `AttributionResultService` / `AttributionChunkDetailService`：结果持久化服务。
+  * `AttributionReportsService` / `AttributionChunkDetailService`：结果持久化服务。
   * `AttributionFailedJobService`：持久化报错任务的归档数据库表。
 * **参数配置** (`application.properties`)：
   * `attribution.worker.threads` (默认 `2`)：后台工作线程数，用以执行并行消费。

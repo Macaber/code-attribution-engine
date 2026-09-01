@@ -5,10 +5,10 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.macaber.attribution.entity.AiMessage;
 import com.macaber.attribution.entity.AttributionChunkDetail;
-import com.macaber.attribution.entity.AttributionResult;
+import com.macaber.attribution.entity.AttributionReports;
 import com.macaber.attribution.entity.AttributionFileDetail;
 import com.macaber.attribution.service.AttributionChunkDetailService;
-import com.macaber.attribution.service.AttributionResultService;
+import com.macaber.attribution.service.AttributionReportsService;
 import com.macaber.attribution.service.AttributionFileDetailService;
 import com.macaber.attribution.core.queue.QueueProducer;
 import com.macaber.attribution.core.AttributionFilter;
@@ -45,7 +45,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class ReportController {
 
-    private final AttributionResultService resultService;
+    private final AttributionReportsService resultService;
     private final AttributionChunkDetailService chunkDetailService;
     private final AttributionFileDetailService fileDetailService;
     private final QueueProducer queueProducer;
@@ -84,7 +84,7 @@ public class ReportController {
             pageSize = 100;
         }
 
-        QueryWrapper<AttributionResult> queryWrapper = new QueryWrapper<>();
+        QueryWrapper<AttributionReports> queryWrapper = new QueryWrapper<>();
 
         // Add filter conditions
         if (userId != null && !userId.trim().isEmpty()) {
@@ -122,7 +122,7 @@ public class ReportController {
         boolean isAsc = "asc".equalsIgnoreCase(sortOrder);
         queryWrapper.orderBy(true, isAsc, sortColumn);
 
-        Page<AttributionResult> resultPage = resultService.page(new Page<>(page, pageSize), queryWrapper);
+        Page<AttributionReports> resultPage = resultService.page(new Page<>(page, pageSize), queryWrapper);
 
         Map<String, Object> response = new HashMap<>();
         response.put("data", resultPage.getRecords());
@@ -151,7 +151,7 @@ public class ReportController {
             startDate = java.time.LocalDate.now().minusMonths(1).toString();
         }
 
-        QueryWrapper<AttributionResult> queryWrapper = new QueryWrapper<>();
+        QueryWrapper<AttributionReports> queryWrapper = new QueryWrapper<>();
 
         if (userId != null && !userId.trim().isEmpty()) {
             queryWrapper.eq("user_id", userId.trim());
@@ -240,7 +240,7 @@ public class ReportController {
             return ResponseEntity.badRequest().body(Map.of("error", "id is required"));
         }
 
-        AttributionResult report = resultService.getById(id);
+        AttributionReports report = resultService.getById(id);
 
         if (report == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
@@ -298,7 +298,7 @@ public class ReportController {
             return ResponseEntity.badRequest().body(Map.of("error", "id is required"));
         }
 
-        AttributionResult report = resultService.getById(id);
+        AttributionReports report = resultService.getById(id);
         if (report == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                     .body(Map.of("error", "Report not found for id: " + id));
@@ -320,8 +320,8 @@ public class ReportController {
     public ResponseEntity<?> recalculateReport(
             @PathVariable("id") Long id,
             @RequestParam(value = "timeframeDays", required = false) Integer timeframeDays) {
-        log.info("[ReportController] recalculateReport — id: {}, timeframeDays: {}", id, timeframeDays);
-        AttributionResult report = resultService.getById(id);
+        log.info("[ReportController] recalculateReport — id: {}", id);
+        AttributionReports report = resultService.getById(id);
         if (report == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                     .body(Map.of("error", "Report not found for id: " + id));
@@ -383,8 +383,8 @@ public class ReportController {
     }
 
     /**
-     * GET /api/reports/{mergeId}/visualization
-     * Query detailed chunk-level trace for visualization.
+     * GET /api/reports/{id}/visualization
+     * Query detailed visualization for report (chunk details + code diffs).
      */
     @GetMapping("/{id}/visualization")
     public ResponseEntity<?> getReportVisualization(@PathVariable("id") Long id) {
@@ -393,7 +393,7 @@ public class ReportController {
             return ResponseEntity.badRequest().body(Map.of("error", "id is required"));
         }
 
-        AttributionResult report = resultService.getById(id);
+        AttributionReports report = resultService.getById(id);
         if (report == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                     .body(Map.of("error", "Report not found for id: " + id));
@@ -543,7 +543,7 @@ public class ReportController {
         String target = groupBy.trim().toLowerCase();
 
         if ("sys-code".equals(target) || "syscode".equals(target)) {
-            QueryWrapper<AttributionResult> sysWrapper = new QueryWrapper<>();
+            QueryWrapper<AttributionReports> sysWrapper = new QueryWrapper<>();
             sysWrapper.select("sys_code as sysCode", "SUM(analyzed_lines) as totalAnalyzedLines", "SUM(ai_contributed_lines) as totalAiContributedLines")
                     .groupBy("sys_code");
             applyDateFilters(sysWrapper, startDate, endDate);
@@ -568,7 +568,7 @@ public class ReportController {
             return ResponseEntity.ok(resultList);
 
         } else if ("repo-name".equals(target) || "reponame".equals(target)) {
-            QueryWrapper<AttributionResult> repoWrapper = new QueryWrapper<>();
+            QueryWrapper<AttributionReports> repoWrapper = new QueryWrapper<>();
             repoWrapper.select("sys_code as sysCode", "repo_name as repoName", "SUM(analyzed_lines) as totalAnalyzedLines", "SUM(ai_contributed_lines) as totalAiContributedLines")
                     .groupBy("sys_code", "repo_name");
             applyDateFilters(repoWrapper, startDate, endDate);
@@ -603,7 +603,7 @@ public class ReportController {
                     || (endDate != null && !endDate.trim().isEmpty());
 
             if (hasDateFilter) {
-                QueryWrapper<AttributionResult> reportWrapper = new QueryWrapper<>();
+                QueryWrapper<AttributionReports> reportWrapper = new QueryWrapper<>();
                 reportWrapper.select("id");
                 applyDateFilters(reportWrapper, startDate, endDate);
                 List<Object> reportIds = resultService.listObjs(reportWrapper);
@@ -755,7 +755,7 @@ public class ReportController {
                     .body(Map.of("error", "Chunk not found for id: " + chunkId));
         }
 
-        AttributionResult report = resultService.getById(chunkDetail.getReportId());
+        AttributionReports report = resultService.getById(chunkDetail.getReportId());
 
         List<AttributionFileDetail> fileDetails = fileDetailService.list(
                 new LambdaQueryWrapper<AttributionFileDetail>()

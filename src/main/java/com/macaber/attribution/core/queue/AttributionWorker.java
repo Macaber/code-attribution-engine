@@ -4,9 +4,9 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.macaber.attribution.core.*;
 import com.macaber.attribution.entity.AiMessage;
-import com.macaber.attribution.entity.AttributionResult;
+import com.macaber.attribution.entity.AttributionReports;
 import com.macaber.attribution.service.AiMessageService;
-import com.macaber.attribution.service.AttributionResultService;
+import com.macaber.attribution.service.AttributionReportsService;
 import com.macaber.attribution.service.AttributionChunkDetailService;
 import com.macaber.attribution.service.AttributionFailedJobService;
 import com.macaber.attribution.service.AttributionFileDetailService;
@@ -54,7 +54,7 @@ public class AttributionWorker {
     private final RedissonClient redissonClient;
     private final SimilarityEngine similarityEngine;
     private final AiMessageService aiMessageService;
-    private final AttributionResultService resultService;
+    private final AttributionReportsService resultService;
     private final AttributionChunkDetailService chunkDetailService;
     private final AttributionFailedJobService failedJobService;
     private final ObjectMapper objectMapper;
@@ -657,18 +657,18 @@ public class AttributionWorker {
                 ? Math.round((totalAiContributedLines / totalAnalyzedLines) * 10000.0) / 10000.0
                 : 0;
 
-        AttributionResult resultRecord = null;
+        AttributionReports resultRecord = null;
         if (jobData.getReportId() != null) {
             resultRecord = resultService.getById(jobData.getReportId());
         }
         if (resultRecord == null && jobData.getMergeId() != null) {
             String sysCode = jobData.getSysCode() != null ? jobData.getSysCode() : "";
-            resultRecord = resultService.getOne(new LambdaQueryWrapper<AttributionResult>()
-                    .eq(AttributionResult::getMergeId, jobData.getMergeId())
-                    .eq(AttributionResult::getSysCode, sysCode));
+            resultRecord = resultService.getOne(new LambdaQueryWrapper<AttributionReports>()
+                    .eq(AttributionReports::getMergeId, jobData.getMergeId())
+                    .eq(AttributionReports::getSysCode, sysCode));
         }
         if (resultRecord == null) {
-            resultRecord = AttributionResult.builder()
+            resultRecord = AttributionReports.builder()
                     .mergeId(jobData.getMergeId())
                     .repoName(jobData.getRepoName())
                     .userId(jobData.getUserId())

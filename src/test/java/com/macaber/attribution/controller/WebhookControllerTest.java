@@ -5,9 +5,9 @@ import com.macaber.attribution.core.queue.QueueProducer;
 import com.macaber.attribution.dto.AttributionJobData;
 import com.macaber.attribution.dto.DoMergePayload;
 import com.macaber.attribution.dto.MergeFileDetail;
-import com.macaber.attribution.entity.AttributionResult;
+import com.macaber.attribution.entity.AttributionReports;
 import com.macaber.attribution.service.AttributionFileDetailService;
-import com.macaber.attribution.service.AttributionResultService;
+import com.macaber.attribution.service.AttributionReportsService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -34,7 +34,7 @@ class WebhookControllerTest {
     private MockMvc mockMvc;
 
     @MockBean
-    private AttributionResultService resultService;
+    private AttributionReportsService resultService;
 
     @MockBean
     private AttributionFileDetailService fileDetailService;
@@ -97,7 +97,7 @@ class WebhookControllerTest {
         verify(resultService, never()).remove(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class));
 
         // Verify save is called for the new report
-        verify(resultService, times(1)).save(any(AttributionResult.class));
+        verify(resultService, times(1)).save(any(AttributionReports.class));
 
         // Verify queue job added
         verify(queueProducer, times(1)).addJob(any(AttributionJobData.class));
@@ -106,7 +106,7 @@ class WebhookControllerTest {
     @Test
     void testDoMerge_ExistingReport_PreservesCreatedAtAndDoesNotDelete() throws Exception {
         LocalDateTime originalCreatedAt = LocalDateTime.of(2026, 7, 1, 10, 0, 0);
-        AttributionResult existingReport = AttributionResult.builder()
+        AttributionReports existingReport = AttributionReports.builder()
                 .id(888L)
                 .mergeId("mr-1002")
                 .sysCode("SYS1")
@@ -135,10 +135,10 @@ class WebhookControllerTest {
         verify(resultService, never()).remove(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class));
 
         // Verify updateById is called on existing report
-        ArgumentCaptor<AttributionResult> captor = ArgumentCaptor.forClass(AttributionResult.class);
+        ArgumentCaptor<AttributionReports> captor = ArgumentCaptor.forClass(AttributionReports.class);
         verify(resultService, times(1)).updateById(captor.capture());
 
-        AttributionResult updated = captor.getValue();
+        AttributionReports updated = captor.getValue();
         assertEquals(888L, updated.getId());
         assertEquals("Updated Title", updated.getTitle());
         // Original createdAt is preserved!
@@ -153,7 +153,7 @@ class WebhookControllerTest {
     @Test
     void testDoMerge_RedisEnqueueFails_ReportNotDeleted() throws Exception {
         LocalDateTime originalCreatedAt = LocalDateTime.of(2026, 7, 1, 10, 0, 0);
-        AttributionResult existingReport = AttributionResult.builder()
+        AttributionReports existingReport = AttributionReports.builder()
                 .id(999L)
                 .mergeId("mr-1003")
                 .sysCode("SYS1")

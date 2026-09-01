@@ -13,9 +13,9 @@ import org.springframework.web.bind.annotation.*;
 import com.macaber.attribution.core.queue.QueueProducer;
 import com.macaber.attribution.core.AttributionFilter;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.macaber.attribution.entity.AttributionResult;
+import com.macaber.attribution.entity.AttributionReports;
 import com.macaber.attribution.entity.AttributionFileDetail;
-import com.macaber.attribution.service.AttributionResultService;
+import com.macaber.attribution.service.AttributionReportsService;
 import com.macaber.attribution.service.AttributionFileDetailService;
 
 import java.time.LocalDateTime;
@@ -41,7 +41,7 @@ public class WebhookController {
     private final ObjectMapper objectMapper;
     private final QueueProducer queueProducer;
     private final AttributionFilter attributionFilter;
-    private final AttributionResultService resultService;
+    private final AttributionReportsService resultService;
     private final AttributionFileDetailService fileDetailService;
 
     @PostMapping("/doMerge")
@@ -62,12 +62,12 @@ public class WebhookController {
 
         // Find existing report by (mergeId, sysCode) or create a new one to preserve original createdAt
         String sysCode = payload.getSysCode() != null ? payload.getSysCode() : "";
-        AttributionResult report = resultService.getOne(new LambdaQueryWrapper<AttributionResult>()
-                .eq(AttributionResult::getMergeId, payload.getMergeId())
-                .eq(AttributionResult::getSysCode, sysCode));
+        AttributionReports report = resultService.getOne(new LambdaQueryWrapper<AttributionReports>()
+                .eq(AttributionReports::getMergeId, payload.getMergeId())
+                .eq(AttributionReports::getSysCode, sysCode));
 
         if (report == null) {
-            report = AttributionResult.builder()
+            report = AttributionReports.builder()
                     .mergeId(payload.getMergeId())
                     .repoName(payload.getRepoName())
                     .userId(payload.getOa())

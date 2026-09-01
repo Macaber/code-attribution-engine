@@ -1,10 +1,10 @@
 package com.macaber.attribution.controller;
 
 import com.macaber.attribution.entity.AttributionChunkDetail;
-import com.macaber.attribution.entity.AttributionResult;
+import com.macaber.attribution.entity.AttributionReports;
 import com.macaber.attribution.entity.AttributionFileDetail;
 import com.macaber.attribution.service.AttributionChunkDetailService;
-import com.macaber.attribution.service.AttributionResultService;
+import com.macaber.attribution.service.AttributionReportsService;
 import com.macaber.attribution.service.AttributionFileDetailService;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -33,7 +33,7 @@ class ReportControllerTest {
     private MockMvc mockMvc;
 
     @MockBean
-    private AttributionResultService resultService;
+    private AttributionReportsService resultService;
 
     @MockBean
     private AttributionChunkDetailService chunkDetailService;
@@ -66,7 +66,7 @@ class ReportControllerTest {
 
     @Test
     void testGetReportById_Success() throws Exception {
-        AttributionResult report = AttributionResult.builder()
+        AttributionReports report = AttributionReports.builder()
                 .id(1L)
                 .mergeId("MR-100")
                 .repoName("my-repo")
@@ -96,7 +96,7 @@ class ReportControllerTest {
 
     @Test
     void testGetReportById_WithSysCode_Success() throws Exception {
-        AttributionResult report = AttributionResult.builder()
+        AttributionReports report = AttributionReports.builder()
                 .id(1L)
                 .mergeId("MR-100")
                 .sysCode("SYS-A")
@@ -129,7 +129,7 @@ class ReportControllerTest {
 
     @Test
     void testGetReportFiles_Success() throws Exception {
-        AttributionResult report = AttributionResult.builder()
+        AttributionReports report = AttributionReports.builder()
                 .id(1L)
                 .mergeId("MR-100")
                 .sysCode("SYS-A")
@@ -167,7 +167,7 @@ class ReportControllerTest {
 
     @Test
     void testRecalculateReport_Success() throws Exception {
-        AttributionResult report = AttributionResult.builder()
+        AttributionReports report = AttributionReports.builder()
                 .id(1L)
                 .mergeId("MR-100")
                 .sysCode("SYS-A")
@@ -199,7 +199,7 @@ class ReportControllerTest {
 
     @Test
     void testRecalculateReport_Skipped() throws Exception {
-        AttributionResult report = AttributionResult.builder()
+        AttributionReports report = AttributionReports.builder()
                 .id(1L)
                 .mergeId("MR-100")
                 .sysCode("SYS-A")
@@ -227,7 +227,7 @@ class ReportControllerTest {
 
     @Test
     void testRecalculateReport_WithTimeframeDays() throws Exception {
-        AttributionResult report = AttributionResult.builder()
+        AttributionReports report = AttributionReports.builder()
                 .id(1L)
                 .mergeId("MR-100")
                 .sysCode("SYS-A")
@@ -260,7 +260,7 @@ class ReportControllerTest {
 
     @Test
     void testGetReportVisualization_Success() throws Exception {
-        AttributionResult report = AttributionResult.builder()
+        AttributionReports report = AttributionReports.builder()
                 .id(1L)
                 .mergeId("MR-100")
                 .sysCode("SYS-A")
@@ -381,7 +381,7 @@ class ReportControllerTest {
                 .matchedMessageIds("101")
                 .build();
 
-        AttributionResult report = AttributionResult.builder()
+        AttributionReports report = AttributionReports.builder()
                 .id(1L)
                 .repoName("my-repo")
                 .sysCode("SYS01")
@@ -407,13 +407,13 @@ class ReportControllerTest {
 
     @Test
     void testGetReports_NegativeOrZeroPageSize_NormalizedToDefault() throws Exception {
-        com.baomidou.mybatisplus.extension.plugins.pagination.Page<AttributionResult> pageResult =
+        com.baomidou.mybatisplus.extension.plugins.pagination.Page<AttributionReports> pageResult =
                 new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(1, 20);
         pageResult.setRecords(Collections.emptyList());
         pageResult.setTotal(0);
         pageResult.setPages(0);
 
-        org.mockito.ArgumentCaptor<com.baomidou.mybatisplus.extension.plugins.pagination.Page<AttributionResult>> pageCaptor =
+        org.mockito.ArgumentCaptor<com.baomidou.mybatisplus.extension.plugins.pagination.Page<AttributionReports>> pageCaptor =
                 org.mockito.ArgumentCaptor.forClass(com.baomidou.mybatisplus.extension.plugins.pagination.Page.class);
 
         Mockito.when(resultService.page(pageCaptor.capture(), any())).thenReturn(pageResult);
@@ -424,20 +424,20 @@ class ReportControllerTest {
                         .param("pageSize", "-1"))
                 .andExpect(status().isOk());
 
-        com.baomidou.mybatisplus.extension.plugins.pagination.Page<AttributionResult> capturedPage = pageCaptor.getValue();
+        com.baomidou.mybatisplus.extension.plugins.pagination.Page<AttributionReports> capturedPage = pageCaptor.getValue();
         assertEquals(1, capturedPage.getCurrent(), "Negative page should be normalized to 1");
         assertEquals(20, capturedPage.getSize(), "Negative pageSize should be normalized to 20");
     }
 
     @Test
     void testGetReports_ExceedsMaxPageSize_NormalizedTo100() throws Exception {
-        com.baomidou.mybatisplus.extension.plugins.pagination.Page<AttributionResult> pageResult =
+        com.baomidou.mybatisplus.extension.plugins.pagination.Page<AttributionReports> pageResult =
                 new com.baomidou.mybatisplus.extension.plugins.pagination.Page<>(1, 100);
         pageResult.setRecords(Collections.emptyList());
         pageResult.setTotal(0);
         pageResult.setPages(0);
 
-        org.mockito.ArgumentCaptor<com.baomidou.mybatisplus.extension.plugins.pagination.Page<AttributionResult>> pageCaptor =
+        org.mockito.ArgumentCaptor<com.baomidou.mybatisplus.extension.plugins.pagination.Page<AttributionReports>> pageCaptor =
                 org.mockito.ArgumentCaptor.forClass(com.baomidou.mybatisplus.extension.plugins.pagination.Page.class);
 
         Mockito.when(resultService.page(pageCaptor.capture(), any())).thenReturn(pageResult);
@@ -446,7 +446,7 @@ class ReportControllerTest {
                         .param("pageSize", "500"))
                 .andExpect(status().isOk());
 
-        com.baomidou.mybatisplus.extension.plugins.pagination.Page<AttributionResult> capturedPage = pageCaptor.getValue();
+        com.baomidou.mybatisplus.extension.plugins.pagination.Page<AttributionReports> capturedPage = pageCaptor.getValue();
         assertEquals(100, capturedPage.getSize(), "PageSize > 100 should be capped at 100");
     }
 }
