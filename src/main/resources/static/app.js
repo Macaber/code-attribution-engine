@@ -37,6 +37,17 @@ let state = {
     }
 };
 
+// Escape untrusted text (file paths, repo names, user ids, titles, etc.) before inserting into innerHTML templates
+function escapeHtml(value) {
+    if (value === null || value === undefined) return '';
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 // DOM Elements
 const reportList = document.getElementById('report-list');
 const prevPageBtn = document.getElementById('prev-page-btn');
@@ -492,12 +503,12 @@ function renderReportList() {
 
         item.innerHTML = `
             <div class="report-list-item-header">
-                <span class="report-list-item-id" title="Report ID: ${report.id} / Merge ID: ${report.mergeId}">Report ID: ${report.id}</span>
-                <span class="badge ${ratioColorClass}" style="font-size: 10px">${ratioPct} AI</span>
+                <span class="report-list-item-id" title="Report ID: ${escapeHtml(report.id)} / Merge ID: ${escapeHtml(report.mergeId)}">Report ID: ${escapeHtml(report.id)}</span>
+                <span class="badge ${escapeHtml(ratioColorClass)}" style="font-size: 10px">${escapeHtml(ratioPct)} AI</span>
             </div>
             <div class="report-list-item-meta">
-                <span class="report-list-item-repo" title="${report.repoName}">${report.repoName}</span>
-                <span class="report-list-item-date">${dateStr}</span>
+                <span class="report-list-item-repo" title="${escapeHtml(report.repoName)}">${escapeHtml(report.repoName)}</span>
+                <span class="report-list-item-date">${escapeHtml(dateStr)}</span>
             </div>
         `;
 
@@ -565,7 +576,7 @@ async function loadReport(idOrMergeId) {
     } catch (err) {
         console.error(err);
         resetReportView();
-        fileTree.innerHTML = `<div class="empty-state" style="color: var(--state-none)">⚠️ ${err.message}</div>`;
+        fileTree.innerHTML = `<div class="empty-state" style="color: var(--state-none)">⚠️ ${escapeHtml(err.message)}</div>`;
         showToast(err.message);
     }
 }
@@ -615,8 +626,8 @@ function renderSummaryCard() {
                 const item = document.createElement('div');
                 item.className = 'author-breakdown-item';
                 item.innerHTML = `
-                    <span class="author-breakdown-name" title="${author}">${author}</span>
-                    <span class="author-breakdown-ratio ${ratioColorClass}">${(ratioVal * 100).toFixed(1)}% AI (${stats.contributed.toFixed(0)}/${stats.analyzed} 行)</span>
+                    <span class="author-breakdown-name" title="${escapeHtml(author)}">${escapeHtml(author)}</span>
+                    <span class="author-breakdown-ratio ${escapeHtml(ratioColorClass)}">${(ratioVal * 100).toFixed(1)}% AI (${stats.contributed.toFixed(0)}/${stats.analyzed} 行)</span>
                 `;
                 breakdownContainer.appendChild(item);
             });
@@ -1028,7 +1039,7 @@ function showLineTooltip(lineIdx, event) {
     matchingMsgs.forEach(msg => {
         const line = document.createElement('div');
         line.className = 'tooltip-line';
-        line.innerHTML = `• Msg <strong class="color-strict">${msg.messageId}</strong>: 匹配度 ${(msg.score * 100).toFixed(0)}% (${msg.matchType})`;
+        line.innerHTML = `• Msg <strong class="color-strict">${escapeHtml(msg.messageId)}</strong>: 匹配度 ${(msg.score * 100).toFixed(0)}% (${escapeHtml(msg.matchType)})`;
         hoverTooltip.appendChild(line);
     });
 
@@ -1280,14 +1291,14 @@ function renderStatsTable() {
 
         const tr = document.createElement('tr');
         tr.innerHTML = `
-            <td style="font-weight: 600;">${item.name}</td>
+            <td style="font-weight: 600;">${escapeHtml(item.name)}</td>
             <td>${item.analyzedLines} 行</td>
             <td>${item.aiContributedLines.toFixed(0)} 行</td>
             <td>
                 <div style="display: flex; align-items: center; gap: 10px;">
-                    <span class="${ratioColorClass}" style="font-weight: 600; width: 50px;">${ratioPct}</span>
+                    <span class="${escapeHtml(ratioColorClass)}" style="font-weight: 600; width: 50px;">${escapeHtml(ratioPct)}</span>
                     <div style="flex: 1; height: 6px; background: var(--bg-tab); border-radius: 3px; overflow: hidden; min-width: 80px; max-width: 200px;">
-                        <div style="height: 100%; width: ${fillWidth}; background: var(--accent-indigo); border-radius: 3px;"></div>
+                        <div style="height: 100%; width: ${escapeHtml(fillWidth)}; background: var(--accent-indigo); border-radius: 3px;"></div>
                     </div>
                 </div>
             </td>
@@ -1297,17 +1308,6 @@ function renderStatsTable() {
 }
 
 // ── Submitter Chunks Query Dashboard Logic ──
-
-// Escape untrusted text (file paths, repo names, user ids...) before inserting into innerHTML templates
-function escapeHtml(value) {
-    if (value === null || value === undefined) return '';
-    return String(value)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
 
 async function fetchChunksList() {
     const listContainer = document.getElementById('chunks-list-container');
@@ -1359,7 +1359,7 @@ async function fetchChunksList() {
         renderChunksList();
     } catch (err) {
         console.error(err);
-        listContainer.innerHTML = `<div class="empty-state">查询 Chunk 失败: ${err.message}</div>`;
+        listContainer.innerHTML = `<div class="empty-state">查询 Chunk 失败: ${escapeHtml(err.message)}</div>`;
     }
 }
 
@@ -1746,7 +1746,7 @@ function showLineTooltipForChunk(lineIdx, event) {
     matchingMsgs.forEach(msg => {
         const line = document.createElement('div');
         line.className = 'tooltip-line';
-        line.innerHTML = `• Msg <strong class="color-strict">${msg.messageId}</strong>: 匹配度 ${(msg.score * 100).toFixed(0)}% (${msg.matchType})`;
+        line.innerHTML = `• Msg <strong class="color-strict">${escapeHtml(msg.messageId)}</strong>: 匹配度 ${(msg.score * 100).toFixed(0)}% (${escapeHtml(msg.matchType)})`;
         hoverTooltip.appendChild(line);
     });
 
